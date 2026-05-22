@@ -22,7 +22,7 @@ The operator console is the **maintainer's union view**: see and intervene acros
 
 - Live SSE streams for experiments + workers
 - Receipt browser with COSE + in-toto + Rekor verification
-- Harness runner (sdk-harness, coordinator-harness, end-to-end-harness)
+- Harness runner (sdk-harness, platform-harness, end-to-end-harness)
 - Audit log
 - Historical experiment browser
 
