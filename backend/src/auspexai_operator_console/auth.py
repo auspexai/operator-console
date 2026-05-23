@@ -131,8 +131,19 @@ def build_router() -> APIRouter:
         if "error" in token_body:
             err = token_body["error"]
             # Pending states per RFC 8628:
-            if err in ("authorization_pending", "slow_down"):
+            if err == "authorization_pending":
                 return {"status": "pending", "github_error": err}
+            if err == "slow_down":
+                # GitHub rate-limited our polling. Per RFC 8628 §3.5, the
+                # client MUST increase its polling interval; GitHub's
+                # response includes the new minimum interval. Surface it
+                # so the frontend can adjust its setInterval cadence.
+                new_interval = int(token_body.get("interval", 10))
+                return {
+                    "status": "pending",
+                    "github_error": err,
+                    "next_interval_seconds": new_interval,
+                }
             if err == "expired_token":
                 return {"status": "expired"}
             if err == "access_denied":

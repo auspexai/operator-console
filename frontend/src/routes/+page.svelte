@@ -28,7 +28,7 @@
   };
 
   type PollResult =
-    | { status: 'pending'; github_error?: string }
+    | { status: 'pending'; github_error?: string; next_interval_seconds?: number }
     | { status: 'signed_in'; github_login: string; github_user_id: number }
     | { status: 'denied'; reason: string; github_login?: string }
     | { status: 'expired' }
@@ -71,11 +71,18 @@
       if (!r.ok) throw new Error(`device code start failed: HTTP ${r.status}`);
       deviceFlow = (await r.json()) as DeviceFlowStart;
       signinStatus = 'waiting for GitHub authorization';
-      pollHandle = setInterval(pollOnce, (deviceFlow.interval_seconds ?? 5) * 1000);
+      // Start at GitHub's recommended interval (typically 5s). Floor at 5s
+      // since RFC 8628 recommends not going below.
+      startPolling(Math.max(deviceFlow.interval_seconds ?? 5, 5));
     } catch (e) {
       signinError = (e as Error).message;
       signinStatus = 'error';
     }
+  }
+
+  function startPolling(intervalSeconds: number) {
+    stopPolling();
+    pollHandle = setInterval(pollOnce, intervalSeconds * 1000);
   }
 
   async function pollOnce() {
@@ -107,8 +114,17 @@
         deviceFlow = null;
         signinStatus = 'error';
         signinError = `GitHub error: ${result.github_error}`;
+      } else if (result.status === 'pending' && result.next_interval_seconds) {
+        // GitHub asked us to slow down. Restart the interval at the new
+        // (longer) cadence. Cap at 30s so a runaway slow_down doesn't
+        // make the UI feel completely dead — if GitHub asks for >30s,
+        // we still poll at 30s and accept that GitHub may keep saying
+        // slow_down (acceptable; the user can click "cancel" + retry).
+        const newInterval = Math.min(result.next_interval_seconds, 30);
+        signinStatus = `slowed by GitHub rate-limit; now polling every ${newInterval}s`;
+        startPolling(newInterval);
       }
-      // status === 'pending' → keep polling silently
+      // plain `status === 'pending'` (no next_interval_seconds) → keep polling at current cadence
     } catch (e) {
       stopPolling();
       signinError = (e as Error).message;
@@ -135,12 +151,29 @@
     await refreshAuth();
   }
 
+  // Refresh health only when signed in (don't leak coord URL / version to
+  // anonymous visitors who might land on the page via CT logs).
+  let healthInterval: ReturnType<typeof setInterval> | null = null;
+
+  $effect(() => {
+    if (auth?.signed_in) {
+      if (!healthInterval) {
+        refreshHealth();
+        healthInterval = setInterval(refreshHealth, 5000);
+      }
+    } else {
+      if (healthInterval) {
+        clearInterval(healthInterval);
+        healthInterval = null;
+        health = null;
+      }
+    }
+  });
+
   onMount(() => {
     refreshAuth();
-    refreshHealth();
-    const id = setInterval(refreshHealth, 5000);
     return () => {
-      clearInterval(id);
+      if (healthInterval) clearInterval(healthInterval);
       stopPolling();
     };
   });
@@ -165,13 +198,27 @@
     </div>
   </header>
 
-  {#if auth && !auth.signed_in}
+  {#if !auth}
     <section>
-      <h2>Sign in</h2>
+      <p class="muted">Checking session…</p>
+    </section>
+  {:else if !auth.signed_in}
+    <!-- Anonymous visitors only see the sign-in surface. No coord URL,
+         no version info, no roadmap — nothing internal. -->
+    <section class="anonymous-landing">
+      <h2>Maintainer-only console</h2>
+      <p>
+        This is the private dashboard for AuspexAI Maintainers. Active Maintainers (per the public
+        roster at
+        <a
+          href="https://github.com/auspexai/.github/blob/main/security/active_maintainers.json"
+          target="_blank"
+          rel="noopener">auspexai/.github/security/active_maintainers.json</a
+        >) can sign in with their GitHub account.
+      </p>
       <p class="muted">
-        Sign in with your GitHub account. Only active Maintainers (per
-        <code>auspexai/.github/security/active_maintainers.json</code>) get access. Your GitHub account
-        must have passkey 2FA enabled (Maintainer hygiene requirement per AUTHORIZED_SIGNERS.md).
+        If you're not on the active Maintainer roster, your sign-in will be politely declined; no
+        sensitive information is exposed to non-Maintainers.
       </p>
 
       {#if !deviceFlow && signinStatus === 'idle'}
@@ -198,60 +245,69 @@
         <p class="errortext">{signinError}</p>
       {/if}
     </section>
+
+    <footer>
+      <p class="muted">
+        Public AuspexAI surfaces:
+        <a href="https://github.com/auspexai" target="_blank" rel="noopener">github.com/auspexai</a> ·
+        <a href="https://auspexai.network" target="_blank" rel="noopener">auspexai.network</a>
+      </p>
+    </footer>
+  {:else}
+    <!-- Post-auth: full operator content. -->
+    <section>
+      <h2>Backend health</h2>
+      {#if healthError}
+        <p class="errortext">Failed to load: {healthError}</p>
+      {:else if !health}
+        <p class="muted">Loading…</p>
+      {:else}
+        <dl>
+          <dt>operator-console version</dt>
+          <dd>{health.version}</dd>
+          <dt>phase</dt>
+          <dd class="muted">{health.phase}</dd>
+          <dt>server time</dt>
+          <dd class="mono">{health.server_time}</dd>
+          <dt>coord URL</dt>
+          <dd class="mono">{health.coord.url}</dd>
+          <dt>coord reachable</dt>
+          <dd>
+            {#if health.coord.reachable === true}
+              <span class="badge ok">yes</span>
+              <span class="muted">— {health.coord.detail}</span>
+            {:else if health.coord.reachable === false}
+              <span class="badge errorbadge">no</span>
+              <span class="muted">— {health.coord.detail}</span>
+            {:else}
+              <span class="badge">unknown</span>
+            {/if}
+          </dd>
+        </dl>
+      {/if}
+    </section>
+
+    <section>
+      <h2>What you'll see here soon</h2>
+      <ul class="roadmap">
+        <li>
+          <strong>O-M2-tail:</strong> Sigstore-signed
+          <code>active_maintainers.json</code> verification + 24-hour cooldown on new Maintainer logins.
+        </li>
+        <li><strong>O-M3:</strong> Workers fleet table — list, retire, quarantine / unquarantine.</li>
+        <li><strong>O-M4:</strong> Audit log — who did what across the network.</li>
+        <li><strong>O-M5:</strong> Receipts — list, detail, verification.</li>
+        <li><strong>O-M6:</strong> Experiments — list, detail, lifecycle actions.</li>
+      </ul>
+    </section>
+
+    <footer>
+      <p class="muted">
+        Build plan: <code>Documentation/AuspexAI/v0.1.0/operator_console_design.md §16</code> (local).
+        Threat model: <code>operator_console_auth_threat_model.md</code> (local).
+      </p>
+    </footer>
   {/if}
-
-  <section>
-    <h2>Backend health</h2>
-    {#if healthError}
-      <p class="errortext">Failed to load: {healthError}</p>
-    {:else if !health}
-      <p class="muted">Loading…</p>
-    {:else}
-      <dl>
-        <dt>operator-console version</dt>
-        <dd>{health.version}</dd>
-        <dt>phase</dt>
-        <dd class="muted">{health.phase}</dd>
-        <dt>server time</dt>
-        <dd class="mono">{health.server_time}</dd>
-        <dt>coord URL</dt>
-        <dd class="mono">{health.coord.url}</dd>
-        <dt>coord reachable</dt>
-        <dd>
-          {#if health.coord.reachable === true}
-            <span class="badge ok">yes</span>
-            <span class="muted">— {health.coord.detail}</span>
-          {:else if health.coord.reachable === false}
-            <span class="badge errorbadge">no</span>
-            <span class="muted">— {health.coord.detail}</span>
-          {:else}
-            <span class="badge">unknown</span>
-          {/if}
-        </dd>
-      </dl>
-    {/if}
-  </section>
-
-  <section>
-    <h2>What you'll see here soon</h2>
-    <ul class="roadmap">
-      <li>
-        <strong>O-M2-tail:</strong> Sigstore-signed
-        <code>active_maintainers.json</code> verification + 24-hour cooldown on new Maintainer logins.
-      </li>
-      <li><strong>O-M3:</strong> Workers fleet table — list, retire, quarantine / unquarantine.</li>
-      <li><strong>O-M4:</strong> Audit log — who did what across the network.</li>
-      <li><strong>O-M5:</strong> Receipts — list, detail, verification.</li>
-      <li><strong>O-M6:</strong> Experiments — list, detail, lifecycle actions.</li>
-    </ul>
-  </section>
-
-  <footer>
-    <p class="muted">
-      Build plan: <code>Documentation/AuspexAI/v0.1.0/operator_console_design.md §16</code> (local).
-      Threat model: <code>operator_console_auth_threat_model.md</code> (local).
-    </p>
-  </footer>
 </main>
 
 <style>
