@@ -45,7 +45,8 @@ def create_app(config: OperatorConsoleConfig | None = None) -> FastAPI:
     )
 
     # Auth routes (/api/v0/auth/{login,poll,whoami,logout}).
-    app.include_router(build_auth_router())
+    # Config passed for defense #5 (cooldown) + #6 (rage-shell factor).
+    app.include_router(build_auth_router(config=config))
 
     @app.get("/api/v0/health")
     async def health() -> JSONResponse:
