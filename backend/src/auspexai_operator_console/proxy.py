@@ -108,6 +108,12 @@ def build_router(config) -> APIRouter:
             _headers(request),
         )
 
+    # ---- accounts + promotion queue ----
+
+    @router.get("/accounts")
+    async def list_accounts(request: Request) -> Any:
+        return await _proxy_get("/api/v0/accounts", _headers(request))
+
     # ---- experiments ----
 
     @router.get("/experiments")
@@ -128,5 +134,37 @@ def build_router(config) -> APIRouter:
             f"/api/v0/experiments/{experiment_id}/actions/approve{query}",
             _headers(request),
         )
+
+    @router.post("/experiments/{experiment_id}/actions/pause")
+    async def pause_experiment(request: Request, experiment_id: str) -> Any:
+        return await _proxy_post(
+            f"/api/v0/experiments/{experiment_id}/actions/pause",
+            _headers(request),
+        )
+
+    @router.post("/experiments/{experiment_id}/actions/resume")
+    async def resume_experiment(request: Request, experiment_id: str) -> Any:
+        return await _proxy_post(
+            f"/api/v0/experiments/{experiment_id}/actions/resume",
+            _headers(request),
+        )
+
+    @router.post("/experiments/{experiment_id}/actions/abort")
+    async def abort_experiment(request: Request, experiment_id: str) -> Any:
+        return await _proxy_post(
+            f"/api/v0/experiments/{experiment_id}/actions/abort",
+            _headers(request),
+        )
+
+    # ---- receipts ----
+
+    @router.get("/receipts/{receipt_id}")
+    async def get_receipt(request: Request, receipt_id: str) -> Any:
+        return await _proxy_get(f"/api/v0/receipts/{receipt_id}", _headers(request))
+
+    @router.post("/receipts/verify")
+    async def verify_receipt(request: Request) -> Any:
+        body = await request.json()
+        return await _proxy_post("/api/v0/receipts/verify", _headers(request), body)
 
     return router

@@ -1,5 +1,6 @@
 <script lang="ts">
   import { onMount } from 'svelte';
+  import Nav from '$lib/components/Nav.svelte';
 
   type CoordStatus = {
     url: string;
@@ -287,10 +288,7 @@
       {/if}
     </section>
 
-    <nav class="dashboard-nav">
-      <a href="/workers">Workers fleet</a>
-      <a href="/experiments">Experiments</a>
-    </nav>
+    <Nav />
 
     <section>
       <h2>Coming soon</h2>
@@ -441,25 +439,6 @@
     border-radius: 4px;
     display: inline-block;
     margin: 0.5em 0;
-  }
-  .dashboard-nav {
-    display: flex;
-    gap: 0.75em;
-    margin: 1.5em 0;
-  }
-  .dashboard-nav a {
-    display: inline-block;
-    padding: 0.6em 1.2em;
-    background: #1f2937;
-    border: 1px solid #2a2e3a;
-    border-radius: 6px;
-    color: #d4d4dc;
-    text-decoration: none;
-    font-weight: 500;
-  }
-  .dashboard-nav a:hover {
-    background: #2a2e3a;
-    border-color: #a78bfa;
   }
   ul.roadmap {
     padding-left: 1.2em;

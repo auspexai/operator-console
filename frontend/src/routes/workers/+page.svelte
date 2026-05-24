@@ -1,5 +1,6 @@
 <script lang="ts">
   import { onMount } from 'svelte';
+  import Nav from '$lib/components/Nav.svelte';
 
   type Worker = {
     worker_id: string;
@@ -75,6 +76,7 @@
   <header>
     <h1><a href="/" class="brand-link"><span class="brand">auspex[ai]</span></a> workers fleet</h1>
   </header>
+  <Nav />
 
   {#if loading}
     <p class="muted">Loading workers…</p>
