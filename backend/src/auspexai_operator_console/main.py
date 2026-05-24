@@ -83,14 +83,19 @@ def create_app(config: OperatorConsoleConfig | None = None) -> FastAPI:
             }
         )
 
-    # Mount the built SvelteKit static bundle under /. The bundle's
-    # routes live as HTML files (e.g., /index.html, /workers/index.html);
-    # adapter-static produces them at build time. FastAPI's StaticFiles
-    # with html=True serves index.html for directory requests.
     if config.static_dir.is_dir():
-        app.mount("/", StaticFiles(directory=str(config.static_dir), html=True), name="frontend")
+        index_html = config.static_dir / "index.html"
+        app.mount("/_app", StaticFiles(directory=str(config.static_dir / "_app")), name="static-assets")
+
+        @app.get("/{full_path:path}")
+        async def spa_fallback(full_path: str) -> FileResponse:
+            # Serve the actual file if it exists (robots.txt, etc.),
+            # otherwise fall back to index.html for SvelteKit client routing.
+            candidate = config.static_dir / full_path
+            if candidate.is_file():
+                return FileResponse(candidate)
+            return FileResponse(index_html)
     else:
-        # Frontend not built yet — surface a clear placeholder.
         @app.get("/")
         async def placeholder() -> FileResponse | JSONResponse:
             return JSONResponse(
