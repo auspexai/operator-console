@@ -287,17 +287,16 @@
       {/if}
     </section>
 
+    <nav class="dashboard-nav">
+      <a href="/workers">Workers fleet</a>
+      <a href="/experiments">Experiments</a>
+    </nav>
+
     <section>
-      <h2>What you'll see here soon</h2>
+      <h2>Coming soon</h2>
       <ul class="roadmap">
-        <li>
-          <strong>O-M2-tail:</strong> Sigstore-signed
-          <code>active_maintainers.json</code> verification + 24-hour cooldown on new Maintainer logins.
-        </li>
-        <li><strong>O-M3:</strong> Workers fleet table — list, retire, quarantine / unquarantine.</li>
         <li><strong>O-M4:</strong> Audit log — who did what across the network.</li>
         <li><strong>O-M5:</strong> Receipts — list, detail, verification.</li>
-        <li><strong>O-M6:</strong> Experiments — list, detail, lifecycle actions.</li>
       </ul>
     </section>
 
@@ -442,6 +441,25 @@
     border-radius: 4px;
     display: inline-block;
     margin: 0.5em 0;
+  }
+  .dashboard-nav {
+    display: flex;
+    gap: 0.75em;
+    margin: 1.5em 0;
+  }
+  .dashboard-nav a {
+    display: inline-block;
+    padding: 0.6em 1.2em;
+    background: #1f2937;
+    border: 1px solid #2a2e3a;
+    border-radius: 6px;
+    color: #d4d4dc;
+    text-decoration: none;
+    font-weight: 500;
+  }
+  .dashboard-nav a:hover {
+    background: #2a2e3a;
+    border-color: #a78bfa;
   }
   ul.roadmap {
     padding-left: 1.2em;

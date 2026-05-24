@@ -18,6 +18,7 @@ from starlette.middleware.sessions import SessionMiddleware
 from . import __version__
 from .auth import build_router as build_auth_router
 from .config import OperatorConsoleConfig
+from .proxy import build_router as build_proxy_router
 
 
 def create_app(config: OperatorConsoleConfig | None = None) -> FastAPI:
@@ -47,6 +48,9 @@ def create_app(config: OperatorConsoleConfig | None = None) -> FastAPI:
     # Auth routes (/api/v0/auth/{login,poll,whoami,logout}).
     # Config passed for defense #5 (cooldown) + #6 (rage-shell factor).
     app.include_router(build_auth_router(config=config))
+
+    # Proxy routes — proxies coordinator API with X-Maintainer-Login attribution.
+    app.include_router(build_proxy_router(config))
 
     @app.get("/api/v0/health")
     async def health() -> JSONResponse:
