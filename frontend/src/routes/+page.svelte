@@ -31,9 +31,11 @@
   type PollResult =
     | { status: 'pending'; github_error?: string; next_interval_seconds?: number }
     | { status: 'signed_in'; github_login: string; github_user_id: number }
-    | { status: 'denied'; reason: string; github_login?: string }
+    | { status: 'denied'; reason: string; github_login?: string; setup_token?: string }
     | { status: 'expired' }
     | { status: 'error'; github_error: string };
+
+  type PassphraseMode = 'none' | 'setup' | 'enter' | 'reset';
 
   let auth = $state<WhoAmI | null>(null);
   let health = $state<Health | null>(null);
@@ -43,6 +45,12 @@
   let deviceFlow = $state<DeviceFlowStart | null>(null);
   let signinStatus = $state<string>('idle');
   let pollHandle: ReturnType<typeof setInterval> | null = null;
+
+  let passphrase = $state('');
+  let passphraseConfirm = $state('');
+  let passphraseMode = $state<PassphraseMode>('none');
+  let setupToken = $state<string | null>(null);
+  let setupBusy = $state(false);
 
   async function refreshAuth() {
     try {
@@ -89,7 +97,12 @@
   async function pollOnce() {
     if (!deviceFlow) return;
     try {
-      const r = await fetch(`/api/v0/auth/poll?device_code=${encodeURIComponent(deviceFlow.device_code)}`);
+      const pollHeaders: Record<string, string> = {};
+      if (passphrase) pollHeaders['X-Operator-Passphrase'] = passphrase;
+      const r = await fetch(
+        `/api/v0/auth/poll?device_code=${encodeURIComponent(deviceFlow.device_code)}`,
+        { headers: pollHeaders },
+      );
       if (!r.ok) throw new Error(`poll HTTP ${r.status}`);
       const result = (await r.json()) as PollResult;
       if (result.status === 'signed_in') {
@@ -101,10 +114,20 @@
         stopPolling();
         deviceFlow = null;
         signinStatus = 'denied';
-        signinError =
-          result.reason === 'not_in_active_maintainers' && result.github_login
-            ? `'@${result.github_login}' is not on the active Maintainer roster. Sign-in declined.`
-            : `Sign-in declined: ${result.reason}`;
+        if (result.reason === 'passphrase_setup_required' && result.setup_token) {
+          setupToken = result.setup_token;
+          passphraseMode = 'setup';
+          signinError = null;
+        } else if (result.reason === 'rage_shell_factor_required' && result.setup_token) {
+          setupToken = result.setup_token;
+          passphraseMode = 'enter';
+          signinError = null;
+        } else {
+          signinError =
+            result.reason === 'not_in_active_maintainers' && result.github_login
+              ? `'@${result.github_login}' is not on the active Maintainer roster. Sign-in declined.`
+              : `Sign-in declined: ${result.reason}`;
+        }
       } else if (result.status === 'expired') {
         stopPolling();
         deviceFlow = null;
@@ -145,6 +168,54 @@
     deviceFlow = null;
     signinStatus = 'idle';
     signinError = null;
+    passphraseMode = 'none';
+    passphrase = '';
+    passphraseConfirm = '';
+    setupToken = null;
+  }
+
+  async function submitPassphrase() {
+    if (!setupToken) return;
+    const isSetup = passphraseMode === 'setup' || passphraseMode === 'reset';
+    if (isSetup && passphrase !== passphraseConfirm) {
+      signinError = 'Passphrases do not match.';
+      return;
+    }
+    if (isSetup && passphrase.length < 8) {
+      signinError = 'Passphrase must be at least 8 characters.';
+      return;
+    }
+
+    signinError = null;
+    setupBusy = true;
+
+    if (isSetup) {
+      try {
+        const r = await fetch('/api/v0/auth/setup-passphrase', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ setup_token: setupToken, passphrase, confirm: passphraseConfirm }),
+        });
+        const result = await r.json();
+        if (r.ok && result.status === 'signed_in') {
+          passphraseMode = 'none';
+          passphrase = '';
+          passphraseConfirm = '';
+          setupToken = null;
+          signinStatus = 'signed in';
+          await refreshAuth();
+        } else {
+          signinError = result.detail || 'Failed to set passphrase.';
+        }
+      } catch (e) {
+        signinError = (e as Error).message;
+      } finally {
+        setupBusy = false;
+      }
+    } else {
+      setupBusy = false;
+      beginSignin();
+    }
   }
 
   async function signOut() {
@@ -222,7 +293,60 @@
         sensitive information is exposed to non-Maintainers.
       </p>
 
-      {#if !deviceFlow && signinStatus === 'idle'}
+      {#if passphraseMode === 'setup' || passphraseMode === 'reset'}
+        <div class="passphrase-prompt">
+          <p>
+            {passphraseMode === 'setup'
+              ? 'GitHub identity verified. Set an operator passphrase for this console.'
+              : 'GitHub identity verified. Set a new operator passphrase.'}
+          </p>
+          <label for="op-passphrase">New passphrase</label>
+          <input
+            id="op-passphrase"
+            type="password"
+            autocomplete="new-password"
+            placeholder="at least 8 characters"
+            bind:value={passphrase}
+          />
+          <label for="op-passphrase-confirm">Confirm passphrase</label>
+          <input
+            id="op-passphrase-confirm"
+            type="password"
+            autocomplete="new-password"
+            placeholder="confirm passphrase"
+            bind:value={passphraseConfirm}
+            onkeydown={(e: KeyboardEvent) => { if (e.key === 'Enter' && passphrase && passphraseConfirm) submitPassphrase(); }}
+          />
+          <div class="passphrase-actions">
+            <button class="primary" onclick={submitPassphrase} disabled={!passphrase || !passphraseConfirm || setupBusy}>
+              {setupBusy ? 'Saving…' : passphraseMode === 'setup' ? 'Set passphrase & sign in' : 'Reset passphrase & sign in'}
+            </button>
+            <button onclick={cancelSignin}>cancel</button>
+          </div>
+        </div>
+      {:else if passphraseMode === 'enter'}
+        <div class="passphrase-prompt">
+          <p>GitHub identity verified. Enter your operator passphrase.</p>
+          <label for="op-passphrase">Operator passphrase</label>
+          <input
+            id="op-passphrase"
+            type="password"
+            autocomplete="current-password"
+            placeholder="enter passphrase"
+            bind:value={passphrase}
+            onkeydown={(e: KeyboardEvent) => { if (e.key === 'Enter' && passphrase) submitPassphrase(); }}
+          />
+          <div class="passphrase-actions">
+            <button class="primary" onclick={submitPassphrase} disabled={!passphrase}>
+              Sign in
+            </button>
+            <button onclick={() => { passphraseMode = 'reset'; passphrase = ''; }}>
+              forgot passphrase?
+            </button>
+            <button onclick={cancelSignin}>cancel</button>
+          </div>
+        </div>
+      {:else if !deviceFlow && signinStatus === 'idle'}
         <button class="primary" onclick={beginSignin}>Sign in with GitHub</button>
       {:else if deviceFlow}
         <div class="device-flow">
@@ -439,6 +563,39 @@
     border-radius: 4px;
     display: inline-block;
     margin: 0.5em 0;
+  }
+  .passphrase-prompt {
+    background: #1a1e2a;
+    border: 1px solid #2a2e3a;
+    border-radius: 6px;
+    padding: 1em;
+    margin: 1em 0;
+  }
+  .passphrase-prompt label {
+    display: block;
+    font-size: 0.85em;
+    color: #9ca3af;
+    margin-bottom: 0.3em;
+  }
+  .passphrase-prompt input {
+    width: 100%;
+    max-width: 22em;
+    padding: 0.5em 0.65em;
+    font: inherit;
+    font-size: 0.95em;
+    background: #0a0e1a;
+    border: 1px solid #3a3e4a;
+    border-radius: 4px;
+    color: #d4d4dc;
+  }
+  .passphrase-prompt input:focus {
+    outline: none;
+    border-color: #a78bfa;
+  }
+  .passphrase-actions {
+    display: flex;
+    gap: 0.6em;
+    margin-top: 0.75em;
   }
   ul.roadmap {
     padding-left: 1.2em;

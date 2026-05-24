@@ -35,7 +35,6 @@ to start (fail-fast).
 
 from __future__ import annotations
 
-import json
 import logging
 from datetime import UTC, datetime, timedelta
 from ipaddress import ip_address, ip_network
@@ -123,11 +122,11 @@ def _check_cooldown(entry: dict[str, Any], cooldown_hours: int) -> str | None:
 def _check_rage_shell_factor(
     request: Request,
     allowed_networks: list[str],
-    passphrase_file: Any | None,
+    passphrase_store: Any | None,
     session_passphrase: str | None,
 ) -> str | None:
     """Returns an error message if the rage-shell factor check fails, else None."""
-    if not allowed_networks and passphrase_file is None:
+    if not allowed_networks and passphrase_store is None:
         return None
 
     client_ip = request.headers.get("CF-Connecting-IP") or request.client.host if request.client else "unknown"
@@ -139,16 +138,36 @@ def _check_rage_shell_factor(
             if client_ip == net:
                 return None
 
-    if passphrase_file is not None and session_passphrase:
+    if passphrase_store is not None and session_passphrase:
+        from .passphrase_store import PassphraseStoreError, verify
+
         try:
-            stored = json.loads(passphrase_file.read_text(encoding="utf-8"))
-            passphrases = {v for v in stored.values() if isinstance(v, str)}
-            if session_passphrase in passphrases:
+            if verify(passphrase_store, session_passphrase):
                 return None
-        except (FileNotFoundError, json.JSONDecodeError, OSError):
-            logger.warning("rage-shell passphrase file not readable: %s", passphrase_file)
+        except PassphraseStoreError:
+            logger.warning("rage-shell passphrase store not readable")
 
     return f"rage-shell factor required: IP {client_ip} not in allowed networks and no valid passphrase"
+
+
+_SETUP_TOKEN_MAX_AGE = 300  # 5 minutes
+
+
+def _make_setup_token(secret: str, github_login: str, github_user_id: int) -> str:
+    from itsdangerous import URLSafeTimedSerializer
+
+    s = URLSafeTimedSerializer(secret, salt="rage-shell-setup")
+    return s.dumps({"github_login": github_login, "github_user_id": github_user_id})
+
+
+def _verify_setup_token(secret: str, token: str) -> dict[str, Any] | None:
+    from itsdangerous import BadSignature, SignatureExpired, URLSafeTimedSerializer
+
+    s = URLSafeTimedSerializer(secret, salt="rage-shell-setup")
+    try:
+        return s.loads(token, max_age=_SETUP_TOKEN_MAX_AGE)
+    except (BadSignature, SignatureExpired):
+        return None
 
 
 def build_router(config=None) -> APIRouter:
@@ -272,26 +291,76 @@ def build_router(config=None) -> APIRouter:
                 }
 
             # Defense #6: rage-shell secondary factor.
+            from .passphrase_store import default_store
+
+            pstore = default_store(encrypted_file_path=config.passphrase_store_path)
             rage_msg = _check_rage_shell_factor(
                 request,
                 config.allowed_networks,
-                config.passphrase_file,
+                pstore,
                 request.headers.get("X-Operator-Passphrase"),
             )
             if rage_msg is not None:
                 request.session.clear()
                 logger.warning("auth: rage-shell factor rejection for %r: %s", github_login, rage_msg)
+                setup_token = _make_setup_token(
+                    config.session_secret, github_login, github_user_id,
+                )
+                has_passphrase = pstore.has_passphrase()
                 return {
                     "status": "denied",
-                    "reason": "rage_shell_factor_required",
+                    "reason": "passphrase_setup_required" if not has_passphrase else "rage_shell_factor_required",
                     "detail": rage_msg,
                     "github_login": github_login,
+                    "setup_token": setup_token,
                 }
 
         # Issue session.
         request.session["github_login"] = github_login
         request.session["github_user_id"] = github_user_id
         logger.info("auth: session issued for github_login=%r", github_login)
+        return {
+            "status": "signed_in",
+            "github_login": github_login,
+            "github_user_id": github_user_id,
+        }
+
+    @router.post("/setup-passphrase")
+    async def setup_passphrase(request: Request) -> dict[str, Any]:
+        """Set or reset the operator passphrase. Requires a valid setup token
+        from a successful GitHub OAuth + roster check."""
+        from .passphrase_store import PassphraseStoreError, default_store
+
+        body = await request.json()
+        token = body.get("setup_token", "")
+        passphrase = body.get("passphrase", "")
+        confirm = body.get("confirm", "")
+
+        if not token or not passphrase:
+            raise HTTPException(status_code=400, detail="setup_token and passphrase required")
+        if passphrase != confirm:
+            raise HTTPException(status_code=400, detail="passphrases do not match")
+        if len(passphrase) < 8:
+            raise HTTPException(status_code=400, detail="passphrase must be at least 8 characters")
+
+        payload = _verify_setup_token(config.session_secret, token)
+        if payload is None:
+            raise HTTPException(status_code=403, detail="invalid or expired setup token")
+
+        github_login = payload["github_login"]
+        github_user_id = payload["github_user_id"]
+
+        pstore = default_store(encrypted_file_path=config.passphrase_store_path)
+        try:
+            pstore.store(passphrase)
+        except PassphraseStoreError as exc:
+            logger.error("setup-passphrase: store failed for %r: %s", github_login, exc)
+            raise HTTPException(status_code=500, detail="failed to store passphrase") from exc
+
+        logger.info("auth: passphrase %s by %r", "reset" if pstore.has_passphrase() else "set", github_login)
+
+        request.session["github_login"] = github_login
+        request.session["github_user_id"] = github_user_id
         return {
             "status": "signed_in",
             "github_login": github_login,
