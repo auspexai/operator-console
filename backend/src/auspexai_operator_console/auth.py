@@ -367,6 +367,42 @@ def build_router(config=None) -> APIRouter:
             "github_user_id": github_user_id,
         }
 
+    @router.post("/verify-passphrase")
+    async def verify_passphrase(request: Request) -> dict[str, Any]:
+        """Verify the operator passphrase using a setup token from a
+        prior GitHub OAuth flow. Issues a session on success."""
+        from .passphrase_store import PassphraseStoreError, default_store, verify
+
+        body = await request.json()
+        token = body.get("setup_token", "")
+        passphrase = body.get("passphrase", "")
+
+        if not token or not passphrase:
+            raise HTTPException(status_code=400, detail="setup_token and passphrase required")
+
+        payload = _verify_setup_token(config.session_secret, token)
+        if payload is None:
+            raise HTTPException(status_code=403, detail="invalid or expired setup token")
+
+        pstore = default_store(encrypted_file_path=config.passphrase_store_path)
+        try:
+            if not verify(pstore, passphrase):
+                raise HTTPException(status_code=403, detail="incorrect passphrase")
+        except PassphraseStoreError as exc:
+            logger.error("verify-passphrase: store error: %s", exc)
+            raise HTTPException(status_code=500, detail="passphrase store error") from exc
+
+        github_login = payload["github_login"]
+        github_user_id = payload["github_user_id"]
+        request.session["github_login"] = github_login
+        request.session["github_user_id"] = github_user_id
+        logger.info("auth: passphrase verified for %r", github_login)
+        return {
+            "status": "signed_in",
+            "github_login": github_login,
+            "github_user_id": github_user_id,
+        }
+
     @router.get("/whoami")
     async def whoami(request: Request) -> dict[str, Any]:
         login = request.session.get("github_login")

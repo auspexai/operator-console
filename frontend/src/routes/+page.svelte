@@ -213,8 +213,27 @@
         setupBusy = false;
       }
     } else {
-      setupBusy = false;
-      beginSignin();
+      try {
+        const r = await fetch('/api/v0/auth/verify-passphrase', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ setup_token: setupToken, passphrase }),
+        });
+        const result = await r.json();
+        if (r.ok && result.status === 'signed_in') {
+          passphraseMode = 'none';
+          passphrase = '';
+          setupToken = null;
+          signinStatus = 'signed in';
+          await refreshAuth();
+        } else {
+          signinError = result.detail || 'Incorrect passphrase.';
+        }
+      } catch (e) {
+        signinError = (e as Error).message;
+      } finally {
+        setupBusy = false;
+      }
     }
   }
 
