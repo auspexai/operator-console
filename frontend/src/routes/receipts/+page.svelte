@@ -47,7 +47,7 @@
       const r = await fetch('/api/v0/proxy/receipts/verify', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ cose_signed_blob_b64: verifyBlob.trim() }),
+        body: JSON.stringify({ receipt_cose_b64: verifyBlob.replace(/\s+/g, '') }),
       });
       if (!r.ok) throw new Error(`HTTP ${r.status}`);
       verifyResult = await r.json();
