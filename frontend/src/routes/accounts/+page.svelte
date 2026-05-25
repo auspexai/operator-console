@@ -81,16 +81,19 @@
     }
   }
 
-  async function suspendAccount(accountId: string) {
-    if (!confirm(`Suspend account ${accountId}?`)) return;
+  let suspendModal = $state<{ accountId: string; reason: string } | null>(null);
+
+  async function submitSuspend() {
+    if (!suspendModal) return;
     actionLoading = true;
     try {
-      const r = await fetch(`/api/v0/proxy/accounts/${accountId}/actions/suspend`, {
+      const r = await fetch(`/api/v0/proxy/accounts/${suspendModal.accountId}/actions/suspend`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({}),
+        body: JSON.stringify({ reason: suspendModal.reason }),
       });
       if (!r.ok) throw new Error(`HTTP ${r.status}`);
+      suspendModal = null;
       await loadAccounts();
     } catch (e) {
       alert(`Suspend failed: ${(e as Error).message}`);
@@ -175,7 +178,7 @@
                 {#if acct.suspended_at}
                   <button onclick={() => unsuspendAccount(acct.account_id)} disabled={actionLoading}>unsuspend</button>
                 {:else}
-                  <button class="danger" onclick={() => suspendAccount(acct.account_id)} disabled={actionLoading}>suspend</button>
+                  <button class="danger" onclick={() => (suspendModal = { accountId: acct.account_id, reason: '' })} disabled={actionLoading}>suspend</button>
                 {/if}
               {/if}
             </td>
@@ -216,6 +219,27 @@
         <button onclick={() => (tierModal = null)}>cancel</button>
         <button class="primary" onclick={submitTierChange} disabled={actionLoading || !tierModal.reason.trim()}>
           {tierModal.action} to {tierNames[tierModal.targetTier] ?? `T${tierModal.targetTier}`}
+        </button>
+      </div>
+    </div>
+  {/if}
+
+  {#if suspendModal}
+    <div class="modal-backdrop" onclick={() => (suspendModal = null)}></div>
+    <div class="tier-modal">
+      <h2>Suspend account</h2>
+      <p class="mono">{suspendModal.accountId}</p>
+      <p class="warn-text">This will quarantine all workers bound to this account.</p>
+
+      <label>
+        Reason (required)
+        <textarea bind:value={suspendModal.reason} rows="3" placeholder="Why is this account being suspended? (e.g., deliberate result manipulation, Sybil behavior, Terms of Participation violation)"></textarea>
+      </label>
+
+      <div class="modal-actions">
+        <button onclick={() => (suspendModal = null)}>cancel</button>
+        <button class="danger" onclick={submitSuspend} disabled={actionLoading || !suspendModal.reason.trim()}>
+          suspend account
         </button>
       </div>
     </div>
@@ -262,4 +286,5 @@
   .tier-modal select, .tier-modal textarea { width: 100%; padding: 0.4em; background: #0a0e1a; border: 1px solid #2a2e3a; border-radius: 4px; color: #d4d4dc; font: inherit; font-size: 0.9em; resize: vertical; }
   .tier-modal textarea:focus { outline: none; border-color: #a78bfa; }
   .modal-actions { display: flex; gap: 0.75em; justify-content: flex-end; margin-top: 1.25em; }
+  .warn-text { color: #fbbf24; font-size: 0.9em; margin: 0.25em 0 0.5em; }
 </style>
