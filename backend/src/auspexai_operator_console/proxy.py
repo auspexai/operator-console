@@ -54,11 +54,12 @@ def build_router(config) -> APIRouter:
         return await _proxy_get("/api/v0/workers", _headers(request))
 
     @router.post("/workers/{worker_id}/actions/quarantine")
-    async def quarantine_worker(request: Request, worker_id: str, reason: str | None = None) -> Any:
+    async def quarantine_worker(request: Request, worker_id: str) -> Any:
+        body = await request.json() if request.headers.get("content-type", "").startswith("application/json") else {}
         return await _proxy_post(
             f"/api/v0/workers/{worker_id}/actions/quarantine",
             _headers(request),
-            {"reason": reason} if reason else None,
+            {"reason": body.get("reason")} if body.get("reason") else None,
         )
 
     @router.post("/workers/{worker_id}/actions/unquarantine")
