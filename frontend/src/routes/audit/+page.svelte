@@ -3,13 +3,15 @@
   import Nav from '$lib/components/Nav.svelte';
 
   type AuditEntry = {
-    id: string;
-    timestamp: string;
-    actor: string;
+    id: number;
+    occurred_at: string;
     actor_class: string;
+    actor_identifier: string | null;
+    actor_tenant_id: string | null;
     action: string;
-    resource: string;
-    details: Record<string, any> | null;
+    resource_type: string | null;
+    resource_id: string | null;
+    payload: Record<string, any> | null;
   };
 
   type AuditResponse = {
@@ -82,7 +84,13 @@
       const params = new URLSearchParams();
       if (filterAction) params.set('action', filterAction);
       if (filterActorClass) params.set('actor_class', filterActorClass);
-      if (filterSince) params.set('since', filterSince);
+      if (filterSince) {
+        const now = Date.now();
+        const ms: Record<string, number> = { '1h': 3600e3, '24h': 86400e3, '7d': 604800e3 };
+        if (ms[filterSince]) {
+          params.set('since', new Date(now - ms[filterSince]).toISOString());
+        }
+      }
       const qs = params.toString();
       const url = '/api/v0/proxy/audit' + (qs ? `?${qs}` : '');
       const r = await fetch(url);
@@ -152,14 +160,14 @@
       <tbody>
         {#each entries as entry, i}
           <tr class:alt={i % 2 === 1}>
-            <td class="mono" title={entry.timestamp}>{relativeTime(entry.timestamp)}</td>
+            <td class="mono" title={entry.occurred_at}>{relativeTime(entry.occurred_at)}</td>
             <td>
               <span class="actor-class badge {entry.actor_class}">{entry.actor_class}</span>
-              <span class="mono">{entry.actor}</span>
+              {#if entry.actor_identifier}<span class="mono">{entry.actor_identifier.slice(0, 12)}…</span>{/if}
             </td>
             <td><span class="action-label">{entry.action}</span></td>
-            <td class="mono">{entry.resource}</td>
-            <td class="mono details" title={entry.details ? JSON.stringify(entry.details) : ''}>{truncateDetails(entry.details)}</td>
+            <td class="mono">{entry.resource_type ?? ''}{entry.resource_id ? ` ${entry.resource_id}` : ''}</td>
+            <td class="mono details" title={entry.payload ? JSON.stringify(entry.payload) : ''}>{truncateDetails(entry.payload)}</td>
           </tr>
         {/each}
       </tbody>
