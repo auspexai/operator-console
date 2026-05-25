@@ -1,0 +1,106 @@
+name: Release
+
+# Fires on version tags (e.g., v0.1.0). The tag is the trigger; the
+# Maintainer is expected to push it from a state where the main-branch
+# CI was green.
+#
+# Outputs a GitHub release with:
+#   - auspexai_operator_console-<version>-py3-none-any.whl  (Python wheel)
+#
+# The operator console runs only on rage (not distributed to volunteers),
+# so Sigstore signing and .deb packaging are omitted.
+
+on:
+  push:
+    tags:
+      - "v*"
+
+permissions:
+  contents: write   # create the GitHub release + upload assets
+
+concurrency:
+  group: release-${{ github.ref }}
+  cancel-in-progress: false
+
+jobs:
+  release:
+    name: Build and publish
+    runs-on: ubuntu-24.04
+    timeout-minutes: 15
+
+    steps:
+      - name: Checkout source at tag
+        uses: actions/checkout@v5
+        with:
+          fetch-depth: 0
+
+      - name: Sanity check — tag matches pyproject version
+        run: |
+          TAG_VERSION="${GITHUB_REF_NAME#v}"
+          PYPROJECT_VERSION=$(grep -m1 '^version' backend/pyproject.toml | sed -E 's/.*"([^"]+)".*/\1/')
+          if [ "$TAG_VERSION" != "$PYPROJECT_VERSION" ]; then
+            echo "::error::Tag version ($TAG_VERSION) does not match pyproject.toml version ($PYPROJECT_VERSION)."
+            exit 1
+          fi
+          echo "version=$TAG_VERSION" >> "$GITHUB_ENV"
+
+      # -- Frontend build --------------------------------------------------
+
+      - name: Set up Node 22
+        uses: actions/setup-node@v4
+        with:
+          node-version: 22
+
+      - name: Install pnpm
+        uses: pnpm/action-setup@v4
+        with:
+          version: latest
+
+      - name: Install frontend dependencies
+        run: pnpm install --frozen-lockfile
+        working-directory: frontend
+
+      - name: Build frontend (static export)
+        run: pnpm build
+        working-directory: frontend
+
+      # -- Backend build ----------------------------------------------------
+
+      - name: Copy frontend build into backend static dir
+        run: |
+          rm -rf backend/src/auspexai_operator_console/static
+          cp -r frontend/build backend/src/auspexai_operator_console/static
+
+      - name: Install uv
+        uses: astral-sh/setup-uv@v6
+        with:
+          enable-cache: true
+
+      - name: Set up Python 3.12
+        run: uv python install 3.12
+
+      - name: Build Python wheel
+        run: |
+          uv build
+          ls -la dist/
+        working-directory: backend
+
+      # -- GitHub Release ---------------------------------------------------
+
+      - name: Create GitHub Release
+        uses: softprops/action-gh-release@v2
+        with:
+          name: ${{ env.version }}
+          tag_name: ${{ github.ref_name }}
+          generate_release_notes: true
+          fail_on_unmatched_files: true
+          files: |
+            backend/dist/auspexai_operator_console-*.whl
+          body: |
+            AuspexAI Operator Console ${{ env.version }}.
+
+            ## Install
+
+            ```bash
+            pipx install auspexai_operator_console-${{ env.version }}-py3-none-any.whl
+            ```
