@@ -101,7 +101,7 @@
           <tr class:quarantined={!!w.quarantined_at} class:retired={!!w.retired_at}>
             <td class="mono">{w.worker_id}</td>
             <td><span class="badge tier-{w.trust_tier}">{tierNames[w.trust_tier] ?? `T${w.trust_tier}`}</span></td>
-            <td class="mono">{w.account_id ?? '—'}</td>
+            <td class="mono">{#if w.account_id}<a href="/accounts/{w.account_id}" class="id-link">{w.account_id}</a>{:else}—{/if}</td>
             <td class="mono">{w.last_heartbeat_at ? new Date(w.last_heartbeat_at).toLocaleString() : '—'}</td>
             <td>
               {#if w.retired_at}
@@ -155,6 +155,8 @@
   .badge.tier-1 { background: #1e3a5f; color: #93c5fd; }
   .badge.tier-2 { background: #14532d; color: #86efac; }
   .badge.tier-3 { background: #4c1d95; color: #c4b5fd; }
+  .id-link { color: #a78bfa; text-decoration: none; }
+  .id-link:hover { text-decoration: underline; }
   .muted { color: #6b7280; font-size: 0.95em; }
   .errortext { color: #fca5a5; }
   button { background: #1f2937; border: 1px solid #2a2e3a; color: #d4d4dc; padding: 0.25em 0.65em; border-radius: 4px; cursor: pointer; font: inherit; font-size: 0.85em; }
