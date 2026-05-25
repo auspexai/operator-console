@@ -59,6 +59,7 @@
   let tierModal = $state<{
     action: 'promote' | 'demote';
     targetTier: number;
+    reason: string;
   } | null>(null);
 
   async function loadAccount() {
@@ -97,6 +98,7 @@
     tierModal = {
       action,
       targetTier: action === 'promote' ? Math.min(account.trust_tier + 1, 3) : Math.max(account.trust_tier - 1, 0),
+      reason: '',
     };
   }
 
@@ -107,7 +109,7 @@
       const r = await fetch(`/api/v0/proxy/accounts/${encodeURIComponent(accountId)}/actions/${tierModal.action}`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ target_tier: tierModal.targetTier }),
+        body: JSON.stringify({ target_tier: tierModal.targetTier, reason: tierModal.reason }),
       });
       if (!r.ok) {
         const detail = await r.json();
@@ -334,9 +336,14 @@
         </select>
       </label>
 
+      <label>
+        Reason (required)
+        <textarea bind:value={tierModal.reason} rows="3" placeholder="Why is this tier change justified? (e.g., identity verified via institutional email, vouched by T2+ volunteer, hardware fault investigation)"></textarea>
+      </label>
+
       <div class="modal-actions">
         <button onclick={() => (tierModal = null)}>cancel</button>
-        <button class="primary" onclick={submitTierChange} disabled={actionLoading}>
+        <button class="primary" onclick={submitTierChange} disabled={actionLoading || !tierModal.reason.trim()}>
           {tierModal.action} to {tierNames[tierModal.targetTier] ?? `T${tierModal.targetTier}`}
         </button>
       </div>
@@ -390,6 +397,7 @@
   .tier-modal { position: fixed; top: 50%; left: 50%; transform: translate(-50%, -50%); background: #1a1e2a; border: 1px solid #2a2e3a; border-radius: 8px; padding: 1.5em; z-index: 11; width: 90%; max-width: 500px; }
   .tier-modal h2 { margin: 0 0 0.5em; color: #fff; font-size: 1.1em; }
   .tier-modal label { display: block; margin: 0.75em 0 0.25em; color: #9ca3af; font-size: 0.9em; }
-  .tier-modal select { width: 100%; padding: 0.4em; background: #0a0e1a; border: 1px solid #2a2e3a; border-radius: 4px; color: #d4d4dc; font: inherit; }
+  .tier-modal select, .tier-modal textarea { width: 100%; padding: 0.4em; background: #0a0e1a; border: 1px solid #2a2e3a; border-radius: 4px; color: #d4d4dc; font: inherit; font-size: 0.9em; resize: vertical; }
+  .tier-modal textarea:focus { outline: none; border-color: #a78bfa; }
   .modal-actions { display: flex; gap: 0.75em; justify-content: flex-end; margin-top: 1.25em; }
 </style>
