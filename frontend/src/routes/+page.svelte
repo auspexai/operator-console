@@ -437,7 +437,8 @@
       <h2>Coming soon</h2>
       <ul class="roadmap">
         <li><strong>O-M4:</strong> Audit log — who did what across the network.</li>
-        <li><strong>O-M5:</strong> Receipts — list, detail, verification.</li>
+        <li><strong>O-M6:</strong> Experiment detail — per-experiment drill-down with unit history.</li>
+        <li><strong>O-M7:</strong> Release pipeline — coordinated worker + coordinator upgrades.</li>
       </ul>
     </section>
 

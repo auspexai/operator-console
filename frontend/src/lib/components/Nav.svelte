@@ -6,12 +6,13 @@
     { href: '/workers', label: 'Workers' },
     { href: '/experiments', label: 'Experiments' },
     { href: '/receipts', label: 'Receipts' },
+    { href: '/audit', label: 'Audit' },
   ];
 </script>
 
 <nav>
   {#each links as link}
-    <a href={link.href} class:active={page.url.pathname === link.href}>{link.label}</a>
+    <a href={link.href} class:active={link.href === '/' ? page.url.pathname === '/' : page.url.pathname.startsWith(link.href)}>{link.label}</a>
   {/each}
 </nav>
 

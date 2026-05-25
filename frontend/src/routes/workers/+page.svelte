@@ -111,6 +111,8 @@
                 {#if w.quarantine_reason}
                   <span class="muted"> — {w.quarantine_reason}</span>
                 {/if}
+              {:else if !w.last_heartbeat_at || (Date.now() - new Date(w.last_heartbeat_at).getTime()) > 180_000}
+                <span class="badge stale-badge">offline</span>
               {:else}
                 <span class="badge ok">active</span>
               {/if}
@@ -148,6 +150,7 @@
   .badge.ok { background: #14532d; color: #86efac; }
   .quarantine-badge { background: #7f1d1d; color: #fca5a5; }
   .retired-badge { background: #374151; color: #6b7280; }
+  .stale-badge { background: #78350f; color: #fbbf24; }
   .badge.tier-0 { background: #1f2937; }
   .badge.tier-1 { background: #1e3a5f; color: #93c5fd; }
   .badge.tier-2 { background: #14532d; color: #86efac; }

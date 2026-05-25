@@ -6,6 +6,9 @@ on the coordinator side (trusted-proxy model per §11 of
 operator_console_design.md).
 
 O-M3: workers fleet, promotion queue, experiment approval.
+O-M4: audit log.
+O-M5: receipts detail enhancement.
+O-M6: experiment detail + work-units.
 """
 
 from __future__ import annotations
@@ -120,6 +123,14 @@ def build_router(config) -> APIRouter:
     async def list_experiments(request: Request) -> Any:
         return await _proxy_get("/api/v0/experiments", _headers(request))
 
+    @router.get("/experiments/{experiment_id}")
+    async def get_experiment(request: Request, experiment_id: str) -> Any:
+        return await _proxy_get(f"/api/v0/experiments/{experiment_id}", _headers(request))
+
+    @router.get("/experiments/{experiment_id}/work-units")
+    async def list_work_units(request: Request, experiment_id: str) -> Any:
+        return await _proxy_get(f"/api/v0/experiments/{experiment_id}/work-units", _headers(request))
+
     @router.post("/experiments/{experiment_id}/actions/approve")
     async def approve_experiment(request: Request, experiment_id: str) -> Any:
         body = await request.json()
@@ -155,6 +166,15 @@ def build_router(config) -> APIRouter:
             f"/api/v0/experiments/{experiment_id}/actions/abort",
             _headers(request),
         )
+
+    # ---- audit log ----
+
+    @router.get("/audit")
+    async def proxy_audit(request: Request) -> Any:
+        """Proxy audit log from coordinator."""
+        qs = str(request.query_params)
+        path = "/api/v0/audit" + (f"?{qs}" if qs else "")
+        return await _proxy_get(path, _headers(request))
 
     # ---- receipts ----
 

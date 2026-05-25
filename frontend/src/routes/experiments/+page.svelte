@@ -143,7 +143,7 @@
       <tbody>
         {#each experiments as exp}
           <tr>
-            <td class="mono">{exp.experiment_id}</td>
+            <td class="mono"><a href="/experiments/{exp.experiment_id}" class="id-link">{exp.experiment_id}</a></td>
             <td class="mono">{exp.tenant_id}</td>
             <td><span class="badge {statusBadge[exp.status] ?? ''}">{exp.status}</span></td>
             <td>{exp.integrity_policy ?? 'standard'}</td>
@@ -236,6 +236,8 @@
   button.primary:hover { background: #c4b5fd; }
   button.danger { background: #7f1d1d; border-color: #7f1d1d; color: #fca5a5; }
   button.danger:hover { background: #991b1b; }
+  .id-link { color: #a78bfa; text-decoration: none; }
+  .id-link:hover { text-decoration: underline; }
   .actions { white-space: nowrap; }
   .modal-backdrop { position: fixed; inset: 0; background: rgba(0, 0, 0, 0.6); z-index: 10; }
   .approval-modal { position: fixed; top: 50%; left: 50%; transform: translate(-50%, -50%); background: #1a1e2a; border: 1px solid #2a2e3a; border-radius: 8px; padding: 1.5em; z-index: 11; width: 90%; max-width: 500px; }
