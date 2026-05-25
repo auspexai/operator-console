@@ -102,13 +102,19 @@
     }
   }
 
-  async function unsuspendAccount(accountId: string) {
+  let unsuspendModal = $state<{ accountId: string; reason: string } | null>(null);
+
+  async function submitUnsuspend() {
+    if (!unsuspendModal) return;
     actionLoading = true;
     try {
-      const r = await fetch(`/api/v0/proxy/accounts/${accountId}/actions/unsuspend`, {
+      const r = await fetch(`/api/v0/proxy/accounts/${unsuspendModal.accountId}/actions/unsuspend`, {
         method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ reason: unsuspendModal.reason }),
       });
       if (!r.ok) throw new Error(`HTTP ${r.status}`);
+      unsuspendModal = null;
       await loadAccounts();
     } catch (e) {
       alert(`Unsuspend failed: ${(e as Error).message}`);
@@ -176,7 +182,7 @@
                   <button onclick={() => showTierModal(acct.account_id, 'demote', acct.trust_tier)} disabled={actionLoading}>demote</button>
                 {/if}
                 {#if acct.suspended_at}
-                  <button onclick={() => unsuspendAccount(acct.account_id)} disabled={actionLoading}>unsuspend</button>
+                  <button onclick={() => (unsuspendModal = { accountId: acct.account_id, reason: '' })} disabled={actionLoading}>unsuspend</button>
                 {:else}
                   <button class="danger" onclick={() => (suspendModal = { accountId: acct.account_id, reason: '' })} disabled={actionLoading}>suspend</button>
                 {/if}
@@ -240,6 +246,27 @@
         <button onclick={() => (suspendModal = null)}>cancel</button>
         <button class="danger" onclick={submitSuspend} disabled={actionLoading || !suspendModal.reason.trim()}>
           suspend account
+        </button>
+      </div>
+    </div>
+  {/if}
+
+  {#if unsuspendModal}
+    <div class="modal-backdrop" onclick={() => (unsuspendModal = null)}></div>
+    <div class="tier-modal">
+      <h2>Unsuspend account</h2>
+      <p class="mono">{unsuspendModal.accountId}</p>
+      <p class="muted">This will unquarantine all workers bound to this account.</p>
+
+      <label>
+        Reason (required)
+        <textarea bind:value={unsuspendModal.reason} rows="3" placeholder="Why is this suspension being lifted? (e.g., investigation concluded, false positive, remediation confirmed)"></textarea>
+      </label>
+
+      <div class="modal-actions">
+        <button onclick={() => (unsuspendModal = null)}>cancel</button>
+        <button class="primary" onclick={submitUnsuspend} disabled={actionLoading || !unsuspendModal.reason.trim()}>
+          unsuspend account
         </button>
       </div>
     </div>
