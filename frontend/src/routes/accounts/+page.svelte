@@ -72,7 +72,11 @@
         const detail = await r.json();
         throw new Error(JSON.stringify(detail));
       }
+      const result = await r.json();
       tierModal = null;
+      if (result.gate_override && result.gate_warnings?.length) {
+        alert(`Tier change applied with gate override:\n\n${result.gate_warnings.map((w: string) => `• ${w}`).join('\n')}\n\nThis override is recorded in the audit log.`);
+      }
       await loadAccounts();
     } catch (e) {
       alert(`${tierModal?.action} failed: ${(e as Error).message}`);
