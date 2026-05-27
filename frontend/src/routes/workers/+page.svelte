@@ -114,7 +114,7 @@
               {:else if !w.last_heartbeat_at || (Date.now() - new Date(w.last_heartbeat_at).getTime()) > 180_000}
                 <span class="badge stale-badge">offline</span>
               {:else}
-                <span class="badge ok">active</span>
+                <span class="badge ok">online</span>
               {/if}
             </td>
             <td>
