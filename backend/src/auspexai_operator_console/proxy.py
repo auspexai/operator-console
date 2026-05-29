@@ -16,8 +16,7 @@ from __future__ import annotations
 from typing import Any
 
 import httpx
-from fastapi import APIRouter, Depends, HTTPException, Request
-from pydantic import BaseModel
+from fastapi import APIRouter, HTTPException, Request
 
 from .auth import coord_headers, require_session
 
@@ -37,14 +36,24 @@ def build_router(config) -> APIRouter:
         async with httpx.AsyncClient(timeout=10.0) as client:
             r = await client.get(f"{config.coord_url}{path}", headers=headers)
         if r.status_code >= 400:
-            raise HTTPException(status_code=r.status_code, detail=r.json() if r.headers.get("content-type", "").startswith("application/json") else r.text)
+            raise HTTPException(
+                status_code=r.status_code,
+                detail=r.json()
+                if r.headers.get("content-type", "").startswith("application/json")
+                else r.text,
+            )
         return r.json()
 
     async def _proxy_post(path: str, headers: dict[str, str], body: dict | None = None) -> Any:
         async with httpx.AsyncClient(timeout=10.0) as client:
             r = await client.post(f"{config.coord_url}{path}", headers=headers, json=body)
         if r.status_code >= 400:
-            raise HTTPException(status_code=r.status_code, detail=r.json() if r.headers.get("content-type", "").startswith("application/json") else r.text)
+            raise HTTPException(
+                status_code=r.status_code,
+                detail=r.json()
+                if r.headers.get("content-type", "").startswith("application/json")
+                else r.text,
+            )
         return r.json()
 
     # ---- workers fleet ----
@@ -55,7 +64,11 @@ def build_router(config) -> APIRouter:
 
     @router.post("/workers/{worker_id}/actions/quarantine")
     async def quarantine_worker(request: Request, worker_id: str) -> Any:
-        body = await request.json() if request.headers.get("content-type", "").startswith("application/json") else {}
+        body = (
+            await request.json()
+            if request.headers.get("content-type", "").startswith("application/json")
+            else {}
+        )
         return await _proxy_post(
             f"/api/v0/workers/{worker_id}/actions/quarantine",
             _headers(request),
@@ -130,7 +143,9 @@ def build_router(config) -> APIRouter:
 
     @router.get("/experiments/{experiment_id}/work-units")
     async def list_work_units(request: Request, experiment_id: str) -> Any:
-        return await _proxy_get(f"/api/v0/experiments/{experiment_id}/work-units", _headers(request))
+        return await _proxy_get(
+            f"/api/v0/experiments/{experiment_id}/work-units", _headers(request)
+        )
 
     @router.post("/experiments/{experiment_id}/actions/approve")
     async def approve_experiment(request: Request, experiment_id: str) -> Any:
@@ -138,7 +153,12 @@ def build_router(config) -> APIRouter:
         params = []
         if body.get("integrity_policy"):
             params.append(f"integrity_policy={body['integrity_policy']}")
-        for key in ["max_unit_duration_seconds", "max_units", "max_concurrent_assignments", "max_payload_bytes"]:
+        for key in [
+            "max_unit_duration_seconds",
+            "max_units",
+            "max_concurrent_assignments",
+            "max_payload_bytes",
+        ]:
             if body.get(key) is not None:
                 params.append(f"{key}={body[key]}")
         query = f"?{'&'.join(params)}" if params else ""

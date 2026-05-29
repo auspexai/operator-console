@@ -74,9 +74,7 @@ class SecretServicePassphraseStore:
             if self._coll.is_locked():
                 self._coll.unlock()
         except Exception as exc:
-            raise PassphraseStoreError(
-                f"could not connect to Secret Service: {exc}"
-            ) from exc
+            raise PassphraseStoreError(f"could not connect to Secret Service: {exc}") from exc
 
     def _find(self):
         items = list(self._coll.search_items(_SS_SCHEMA))
@@ -87,7 +85,10 @@ class SecretServicePassphraseStore:
 
     def store(self, passphrase: str) -> None:
         self._coll.create_item(
-            _SS_LABEL, _SS_SCHEMA, passphrase.encode(), replace=True,
+            _SS_LABEL,
+            _SS_SCHEMA,
+            passphrase.encode(),
+            replace=True,
         )
 
     def load(self) -> str:
@@ -123,9 +124,7 @@ def _read_machine_id() -> str:
             continue
         if content:
             return content
-    raise PassphraseStoreError(
-        "no machine-id found at /etc/machine-id or /var/lib/dbus/machine-id"
-    )
+    raise PassphraseStoreError("no machine-id found at /etc/machine-id or /var/lib/dbus/machine-id")
 
 
 def _derive_key(machine_id: str, uid: int) -> bytes:
@@ -210,6 +209,7 @@ class EncryptedFilePassphraseStore:
 # Factory
 # ---------------------------------------------------------------------------
 
+
 def _try_secret_service(timeout: float = 3.0) -> SecretServicePassphraseStore | None:
     """Probe for Secret Service with a timeout to avoid D-Bus hangs."""
     import threading
@@ -227,7 +227,8 @@ def _try_secret_service(timeout: float = 3.0) -> SecretServicePassphraseStore | 
     t.join(timeout)
     if t.is_alive():
         logger.warning(
-            "Secret Service probe timed out after %.1fs; using encrypted file", timeout,
+            "Secret Service probe timed out after %.1fs; using encrypted file",
+            timeout,
         )
         return None
     return result[0]

@@ -129,7 +129,11 @@ def _check_rage_shell_factor(
     if not allowed_networks and passphrase_store is None:
         return None
 
-    client_ip = request.headers.get("CF-Connecting-IP") or request.client.host if request.client else "unknown"
+    client_ip = (
+        request.headers.get("CF-Connecting-IP") or request.client.host
+        if request.client
+        else "unknown"
+    )
     for net in allowed_networks:
         try:
             if ip_address(client_ip) in ip_network(net, strict=False):
@@ -189,7 +193,9 @@ def build_router(config=None) -> APIRouter:
         if r.status_code != 200:
             raise HTTPException(
                 status_code=status.HTTP_502_BAD_GATEWAY,
-                detail={"error": {"code": "github_device_code_failed", "github_status": r.status_code}},
+                detail={
+                    "error": {"code": "github_device_code_failed", "github_status": r.status_code}
+                },
             )
         body = r.json()
         return {
@@ -302,14 +308,20 @@ def build_router(config=None) -> APIRouter:
             )
             if rage_msg is not None:
                 request.session.clear()
-                logger.warning("auth: rage-shell factor rejection for %r: %s", github_login, rage_msg)
+                logger.warning(
+                    "auth: rage-shell factor rejection for %r: %s", github_login, rage_msg
+                )
                 setup_token = _make_setup_token(
-                    config.session_secret, github_login, github_user_id,
+                    config.session_secret,
+                    github_login,
+                    github_user_id,
                 )
                 has_passphrase = pstore.has_passphrase()
                 return {
                     "status": "denied",
-                    "reason": "passphrase_setup_required" if not has_passphrase else "rage_shell_factor_required",
+                    "reason": "passphrase_setup_required"
+                    if not has_passphrase
+                    else "rage_shell_factor_required",
                     "detail": rage_msg,
                     "github_login": github_login,
                     "setup_token": setup_token,
@@ -357,7 +369,9 @@ def build_router(config=None) -> APIRouter:
             logger.error("setup-passphrase: store failed for %r: %s", github_login, exc)
             raise HTTPException(status_code=500, detail="failed to store passphrase") from exc
 
-        logger.info("auth: passphrase %s by %r", "reset" if pstore.has_passphrase() else "set", github_login)
+        logger.info(
+            "auth: passphrase %s by %r", "reset" if pstore.has_passphrase() else "set", github_login
+        )
 
         request.session["github_login"] = github_login
         request.session["github_user_id"] = github_user_id

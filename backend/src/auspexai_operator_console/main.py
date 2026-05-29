@@ -62,9 +62,7 @@ def create_app(config: OperatorConsoleConfig | None = None) -> FastAPI:
             async with httpx.AsyncClient(timeout=3.0) as client:
                 r = await client.get(f"{config.coord_url}/api/v0/health/public")
                 coord_ok = r.status_code == 200
-                coord_detail = (
-                    r.json().get("status") if coord_ok else f"HTTP {r.status_code}"
-                )
+                coord_detail = r.json().get("status") if coord_ok else f"HTTP {r.status_code}"
         except httpx.HTTPError as e:
             coord_ok = False
             coord_detail = f"error: {e!s}"
@@ -85,7 +83,9 @@ def create_app(config: OperatorConsoleConfig | None = None) -> FastAPI:
 
     if config.static_dir.is_dir():
         index_html = config.static_dir / "index.html"
-        app.mount("/_app", StaticFiles(directory=str(config.static_dir / "_app")), name="static-assets")
+        app.mount(
+            "/_app", StaticFiles(directory=str(config.static_dir / "_app")), name="static-assets"
+        )
 
         @app.get("/{full_path:path}")
         async def spa_fallback(full_path: str) -> FileResponse:
@@ -96,6 +96,7 @@ def create_app(config: OperatorConsoleConfig | None = None) -> FastAPI:
                 return FileResponse(candidate)
             return FileResponse(index_html)
     else:
+
         @app.get("/")
         async def placeholder() -> FileResponse | JSONResponse:
             return JSONResponse(
