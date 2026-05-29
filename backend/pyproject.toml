@@ -1,6 +1,6 @@
 [project]
 name = "auspexai-operator-console"
-version = "0.1.0"
+dynamic = ["version"]
 description = "Maintainer's privileged dashboard for the AuspexAI volunteer compute network"
 readme = "README.md"
 license = "Apache-2.0"
@@ -44,8 +44,15 @@ Homepage = "https://auspexai.network"
 Repository = "https://github.com/auspexai/operator-console"
 
 [build-system]
-requires = ["hatchling"]
+requires = ["hatchling", "hatch-vcs"]
 build-backend = "hatchling.build"
+
+# Version derived from git tags (hatch-vcs), stamped at build. pyproject is in
+# backend/, .git is in the repo root — point setuptools_scm one level up. See
+# version_provenance.md (V-M1).
+[tool.hatch.version]
+source = "vcs"
+raw-options = { root = ".." }
 
 [tool.hatch.build.targets.wheel]
 packages = ["src/auspexai_operator_console"]

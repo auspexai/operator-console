@@ -7,4 +7,7 @@ NO auth gating yet — that's O-M2.
 
 from __future__ import annotations
 
-__version__ = "0.1.0"
+from importlib.metadata import version as _v
+
+# Git-derived (hatch-vcs); read from installed metadata. See version_provenance.md.
+__version__ = _v("auspexai-operator-console")
