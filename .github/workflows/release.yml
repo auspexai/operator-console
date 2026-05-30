@@ -34,16 +34,6 @@ jobs:
         with:
           fetch-depth: 0
 
-      - name: Sanity check — tag matches pyproject version
-        run: |
-          TAG_VERSION="${GITHUB_REF_NAME#v}"
-          PYPROJECT_VERSION=$(grep -m1 '^version' backend/pyproject.toml | sed -E 's/.*"([^"]+)".*/\1/')
-          if [ "$TAG_VERSION" != "$PYPROJECT_VERSION" ]; then
-            echo "::error::Tag version ($TAG_VERSION) does not match pyproject.toml version ($PYPROJECT_VERSION)."
-            exit 1
-          fi
-          echo "version=$TAG_VERSION" >> "$GITHUB_ENV"
-
       # -- Frontend build --------------------------------------------------
 
       - name: Set up Node 22
@@ -84,6 +74,25 @@ jobs:
           uv build
           ls -la dist/
         working-directory: backend
+
+      - name: Guard — version is a clean release matching the tag
+        run: |
+          TAG_VERSION="${GITHUB_REF_NAME#v}"
+          WHEEL=$(ls backend/dist/auspexai_operator_console-*.whl)
+          BUILT_VERSION=$(basename "$WHEEL" | cut -d- -f2)
+          echo "tag=$TAG_VERSION  built=$BUILT_VERSION"
+          # Reject dev/local/dirty (e.g. 0.1.0.dev3+gSHA): hatch-vcs only emits a
+          # clean X.Y.Z when HEAD is exactly the tag with a clean tree, so a
+          # non-release artifact can never ship. version_provenance.md.
+          if [ "$BUILT_VERSION" = "0.0.0" ] || ! printf '%s' "$BUILT_VERSION" | grep -qE '^[0-9]+(\.[0-9]+)+$'; then
+            echo "::error::built version '$BUILT_VERSION' is not a clean release (dev/local/dirty, or 0.0.0 version-detection fallback) — the tag must be on HEAD with a clean tree."
+            exit 1
+          fi
+          if [ "$BUILT_VERSION" != "$TAG_VERSION" ]; then
+            echo "::error::built version '$BUILT_VERSION' != tag '$TAG_VERSION'."
+            exit 1
+          fi
+          echo "version=$TAG_VERSION" >> "$GITHUB_ENV"
 
       # -- GitHub Release ---------------------------------------------------
 
