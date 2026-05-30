@@ -24,7 +24,9 @@
     counts_by_status: Record<string, number>;
   };
 
-  let experimentId = $derived(page.params.id);
+  // page.params.id is `string | undefined` in the SvelteKit types but always
+  // present for this [id] route at runtime; coalesce so it types as string.
+  let experimentId = $derived(page.params.id ?? '');
   let experiment = $state<Experiment | null>(null);
   let workUnits = $state<WorkUnitsResponse | null>(null);
   let loading = $state(true);
