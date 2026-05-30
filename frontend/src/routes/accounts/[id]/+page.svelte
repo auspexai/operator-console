@@ -48,7 +48,9 @@
     3: 'T3 vetted',
   };
 
-  let accountId = $derived(page.params.id);
+  // page.params.id is `string | undefined` in the SvelteKit types but always
+  // present for this [id] route at runtime; coalesce so it types as string.
+  let accountId = $derived(page.params.id ?? '');
   let account = $state<Account | null>(null);
   let receiptStats = $state<ReceiptStats | null>(null);
   let boundWorkers = $state<Worker[]>([]);

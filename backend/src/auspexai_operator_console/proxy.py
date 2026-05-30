@@ -188,6 +188,18 @@ def build_router(config) -> APIRouter:
             _headers(request),
         )
 
+    # ---- tenants + linkage (ops worker↔tenant association) ----
+
+    @router.get("/tenants")
+    async def list_tenants(request: Request) -> Any:
+        return await _proxy_get("/api/v0/tenants", _headers(request))
+
+    @router.get("/tenants/{tenant_id}/linkage")
+    async def tenant_linkage(request: Request, tenant_id: str) -> Any:
+        """The tenant↔account↔workers all-linkages view (operator-only on the
+        coordinator). operator_console_design.md §11."""
+        return await _proxy_get(f"/api/v0/tenants/{tenant_id}/linkage", _headers(request))
+
     # ---- audit log ----
 
     @router.get("/audit")
