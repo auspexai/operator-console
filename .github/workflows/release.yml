@@ -58,8 +58,15 @@ jobs:
 
       - name: Copy frontend build into backend static dir
         run: |
-          rm -rf backend/src/auspexai_operator_console/static
-          cp -r frontend/build backend/src/auspexai_operator_console/static
+          # Clear previous build output but PRESERVE the tracked .gitkeep.
+          # `rm -rf .../static` would delete that tracked file, leaving the
+          # working tree dirty — hatch-vcs then stamps a `.devN+g<sha>.d<date>`
+          # version and the clean-release guard below (correctly) rejects it.
+          # The copied build files are gitignored (`static/*`), so keeping
+          # .gitkeep is enough to keep the tree clean. See version_provenance.md.
+          dest=backend/src/auspexai_operator_console/static
+          find "$dest" -mindepth 1 -maxdepth 1 ! -name .gitkeep -exec rm -rf {} +
+          cp -r frontend/build/. "$dest"/
 
       - name: Install uv
         uses: astral-sh/setup-uv@v6
