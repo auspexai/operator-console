@@ -12,6 +12,7 @@
     created_at: string;
     retired_at: string | null;
     suspended_at: string | null;
+    suspension_reason: string | null;
     identity_verified_at: string | null;
     identity_verification_method: string | null;
   };
@@ -173,6 +174,9 @@
                 <span class="badge retired-badge">retired</span>
               {:else if acct.suspended_at}
                 <span class="badge suspended-badge">suspended</span>
+                {#if acct.suspension_reason}
+                  <span class="muted"> — {acct.suspension_reason}</span>
+                {/if}
               {:else}
                 <span class="badge ok">active</span>
               {/if}

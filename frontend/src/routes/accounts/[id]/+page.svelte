@@ -13,6 +13,7 @@
     created_at: string;
     retired_at: string | null;
     suspended_at: string | null;
+    suspension_reason: string | null;
     identity_verified_at: string | null;
     identity_verification_method: string | null;
   };
@@ -210,6 +211,9 @@
           {:else if account.suspended_at}
             <span class="badge suspended-badge">suspended</span>
             <span class="mono muted"> — {new Date(account.suspended_at).toLocaleString()}</span>
+            {#if account.suspension_reason}
+              <div class="muted reason">reason: {account.suspension_reason}</div>
+            {/if}
           {:else}
             <span class="badge ok">active</span>
           {/if}
