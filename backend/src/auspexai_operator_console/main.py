@@ -72,7 +72,7 @@ def create_app(config: OperatorConsoleConfig | None = None) -> FastAPI:
                 "status": "ok",
                 "version": __version__,
                 "server_time": now,
-                "phase": "O-M3 (workers fleet + experiment approval + trusted-proxy auth)",
+                "phase": "O-M7 (workers · accounts/trust mgmt · experiments · receipts · audit · tenants linkage)",
                 "coord": {
                     "url": config.coord_url,
                     "reachable": coord_ok,
