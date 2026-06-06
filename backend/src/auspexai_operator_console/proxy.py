@@ -284,4 +284,32 @@ def build_router(config) -> APIRouter:
             body,
         )
 
+    # ---- scheduler view (M4) ----
+
+    @router.get("/scheduler/state")
+    async def scheduler_state(request: Request) -> Any:
+        return await _proxy_get("/api/v0/scheduler/state", _headers(request))
+
+    @router.post("/workers/{worker_id}/actions/pause")
+    async def pause_worker(request: Request, worker_id: str) -> Any:
+        body = await request.json()
+        return await _proxy_post(
+            f"/api/v0/workers/{worker_id}/actions/pause", _headers(request), body
+        )
+
+    @router.post("/workers/{worker_id}/actions/unpause")
+    async def unpause_worker(request: Request, worker_id: str) -> Any:
+        return await _proxy_post(
+            f"/api/v0/workers/{worker_id}/actions/unpause", _headers(request)
+        )
+
+    @router.post("/experiments/{experiment_id}/actions/set-integrity-policy")
+    async def set_integrity_policy(request: Request, experiment_id: str) -> Any:
+        body = await request.json()
+        return await _proxy_post(
+            f"/api/v0/experiments/{experiment_id}/actions/set-integrity-policy",
+            _headers(request),
+            body,
+        )
+
     return router
