@@ -12,6 +12,7 @@
     retired_at: string | null;
     quarantined_at: string | null;
     quarantine_reason: string | null;
+    paused_at: string | null;
   };
 
   const tierNames: Record<number, string> = {
@@ -65,6 +66,33 @@
     }
   }
 
+  async function pause(workerId: string) {
+    // No-fault operational hold (not a quarantine/trust signal). Reason is
+    // mandatory + audited.
+    const reason = prompt('Pause reason (required) — e.g. host maintenance, rolling upgrade:');
+    if (!reason || !reason.trim()) return;
+    try {
+      const r = await fetch(`/api/v0/proxy/workers/${workerId}/actions/pause`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ reason }),
+      });
+      if (!r.ok) throw new Error(`HTTP ${r.status}`);
+      await loadWorkers();
+    } catch (e) {
+      alert(`Failed: ${(e as Error).message}`);
+    }
+  }
+
+  async function unpause(workerId: string) {
+    try {
+      await fetch(`/api/v0/proxy/workers/${workerId}/actions/unpause`, { method: 'POST' });
+      await loadWorkers();
+    } catch (e) {
+      alert(`Failed: ${(e as Error).message}`);
+    }
+  }
+
   onMount(loadWorkers);
 </script>
 
@@ -98,7 +126,7 @@
       </thead>
       <tbody>
         {#each workers as w}
-          <tr class:quarantined={!!w.quarantined_at} class:retired={!!w.retired_at}>
+          <tr class:quarantined={!!w.quarantined_at} class:retired={!!w.retired_at} class:paused={!!w.paused_at}>
             <td class="mono">{w.worker_id}</td>
             <td><span class="badge tier-{w.trust_tier}">{tierNames[w.trust_tier] ?? `T${w.trust_tier}`}</span></td>
             <td class="mono">{#if w.account_id}<a href="/accounts/{w.account_id}" class="id-link">{w.account_id}</a>{:else}—{/if}</td>
@@ -111,18 +139,26 @@
                 {#if w.quarantine_reason}
                   <span class="muted"> — {w.quarantine_reason}</span>
                 {/if}
+              {:else if w.paused_at}
+                <span class="badge paused-badge">paused</span>
+                <span class="muted"> — no work assigned (operational hold)</span>
               {:else if !w.last_heartbeat_at || (Date.now() - new Date(w.last_heartbeat_at).getTime()) > 180_000}
                 <span class="badge stale-badge">offline</span>
               {:else}
                 <span class="badge ok">online</span>
               {/if}
             </td>
-            <td>
+            <td class="actions">
               {#if !w.retired_at}
                 {#if w.quarantined_at}
                   <button onclick={() => unquarantine(w.worker_id)}>unquarantine</button>
                 {:else}
                   <button onclick={() => quarantine(w.worker_id)}>quarantine</button>
+                {/if}
+                {#if w.paused_at}
+                  <button onclick={() => unpause(w.worker_id)}>unpause</button>
+                {:else}
+                  <button onclick={() => pause(w.worker_id)}>pause</button>
                 {/if}
               {/if}
             </td>
@@ -144,12 +180,15 @@
   th { text-align: left; padding: 0.5em; border-bottom: 2px solid #2a2e3a; color: #9ca3af; font-weight: 500; }
   td { padding: 0.5em; border-bottom: 1px solid #1a1e2a; }
   tr.quarantined { background: rgba(127, 29, 29, 0.15); }
+  tr.paused { background: rgba(55, 65, 81, 0.25); }
   tr.retired { opacity: 0.5; }
   .mono { font-family: ui-monospace, monospace; font-size: 0.85em; }
   .badge { display: inline-block; padding: 0.1em 0.55em; border-radius: 3px; font-size: 0.85em; font-weight: 500; background: #2a2e3a; color: #9ca3af; }
   .badge.ok { background: #14532d; color: #86efac; }
   .quarantine-badge { background: #7f1d1d; color: #fca5a5; }
+  .paused-badge { background: #374151; color: #d4d4dc; }
   .retired-badge { background: #374151; color: #6b7280; }
+  .actions { white-space: nowrap; }
   .stale-badge { background: #78350f; color: #fbbf24; }
   .badge.tier-0 { background: #1f2937; }
   .badge.tier-1 { background: #1e3a5f; color: #93c5fd; }
