@@ -37,6 +37,7 @@
     paused: boolean;
     degraded?: boolean;
     self_paused?: boolean;
+    execute_tenant_code?: string;
     eligible_experiment_count: number;
   };
 
@@ -204,12 +205,13 @@
       <p class="muted">No workers on the network.</p>
     {:else}
       <table>
-        <thead><tr><th>worker_id</th><th>tier</th><th>models</th><th>eligible for</th><th>state</th><th>actions</th></tr></thead>
+        <thead><tr><th>worker_id</th><th>tier</th><th>mode</th><th>models</th><th>eligible for</th><th>state</th><th>actions</th></tr></thead>
         <tbody>
           {#each workers as w}
             <tr class:paused={w.paused || w.degraded || w.self_paused}>
               <td class="mono">{w.worker_id}</td>
               <td><span class="badge tier-{w.trust_tier}">T{w.trust_tier}</span></td>
+              <td>{#if (w.execute_tenant_code ?? 'synthetic') === 'provisioned'}<span class="badge prov-b" title="runs provisioned tenant code — eligible for real (model-gated) experiments">provisioned</span>{:else if w.execute_tenant_code === 'off'}<span class="badge off-b" title="refuses all work">off</span>{:else}<span class="badge synth-b" title="synthetic echo only — excluded from real (model-gated) experiments">synthetic</span>{/if}</td>
               <td>{w.model_count}</td>
               <td>{w.eligible_experiment_count} exp{#if w.eligible_experiment_count === 0 && !w.paused && !w.degraded && !w.self_paused}<span class="badge idle"> idle</span>{/if}</td>
               <td>{#if w.paused}<span class="badge paused-b">paused</span>{:else if w.self_paused}<span class="badge selfpaused-b">self-paused</span>{:else if w.degraded}<span class="badge degraded-b">overheating</span>{:else}<span class="badge ok">active</span>{/if}</td>
@@ -366,6 +368,9 @@
   .badge.selfpaused-b { background: #1e3a5f; color: #93c5fd; }
   .badge.stalled { background: #78350f; color: #fcd34d; margin-left: 0.3em; }
   .badge.paused-b { background: #374151; color: #d4d4dc; }
+  .badge.prov-b { background: #4c1d95; color: #c4b5fd; }
+  .badge.synth-b { background: #1f2937; color: #9ca3af; }
+  .badge.off-b { background: #374151; color: #d4d4dc; }
   .badge.tier-0 { background: #1f2937; }
   .badge.tier-1 { background: #1e3a5f; color: #93c5fd; }
   .badge.tier-2 { background: #14532d; color: #86efac; }
