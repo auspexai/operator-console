@@ -82,15 +82,22 @@
 </script>
 
 <svelte:head>
-  <title>Model requests — AuspexAI operator console</title>
+  <title>Scheduler — AuspexAI operator console</title>
 </svelte:head>
 
 <main>
   <header>
-    <h1><a href="/" class="brand-link"><span class="brand">auspex[ai]</span></a> model requests</h1>
+    <h1><a href="/" class="brand-link"><span class="brand">auspex[ai]</span></a> scheduler</h1>
   </header>
   <Nav />
 
+  <p class="muted">
+    How the scheduler matches supply (workers + their models) to demand (pending work).
+    More sections — the network model catalog, blocked/starved-unit triage, and maintainer
+    overrides — land with M4.
+  </p>
+
+  <h2 class="section">New-requirement queue</h2>
   <p class="muted">
     Researcher demand for models (BYOM). <strong>pending</strong> = no active worker holds it yet —
     the review queue: recruit a capable volunteer, then <em>fulfil</em>, or <em>decline</em>.
@@ -190,6 +197,7 @@
   main { max-width: 1100px; margin: 0 auto; padding: 2em 1.25em; }
   header { border-bottom: 1px solid #2a2e3a; padding-bottom: 0.75em; margin-bottom: 1.5em; }
   h1 { margin: 0; font-size: 1.5em; font-weight: 600; color: #fff; }
+  h2.section { margin: 1.5em 0 0.25em; font-size: 1.1em; font-weight: 600; color: #d4d4dc; border-bottom: 1px solid #2a2e3a; padding-bottom: 0.3em; }
   .brand { color: #a78bfa; }
   .brand-link { text-decoration: none; color: inherit; }
   table { width: 100%; border-collapse: collapse; font-size: 0.9em; }
