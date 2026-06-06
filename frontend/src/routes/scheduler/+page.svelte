@@ -36,6 +36,7 @@
     model_count: number;
     paused: boolean;
     degraded?: boolean;
+    self_paused?: boolean;
     eligible_experiment_count: number;
   };
 
@@ -206,12 +207,12 @@
         <thead><tr><th>worker_id</th><th>tier</th><th>models</th><th>eligible for</th><th>state</th><th>actions</th></tr></thead>
         <tbody>
           {#each workers as w}
-            <tr class:paused={w.paused || w.degraded}>
+            <tr class:paused={w.paused || w.degraded || w.self_paused}>
               <td class="mono">{w.worker_id}</td>
               <td><span class="badge tier-{w.trust_tier}">T{w.trust_tier}</span></td>
               <td>{w.model_count}</td>
-              <td>{w.eligible_experiment_count} exp{#if w.eligible_experiment_count === 0 && !w.paused && !w.degraded}<span class="badge idle"> idle</span>{/if}</td>
-              <td>{#if w.paused}<span class="badge paused-b">paused</span>{:else if w.degraded}<span class="badge degraded-b">overheating</span>{:else}<span class="badge ok">active</span>{/if}</td>
+              <td>{w.eligible_experiment_count} exp{#if w.eligible_experiment_count === 0 && !w.paused && !w.degraded && !w.self_paused}<span class="badge idle"> idle</span>{/if}</td>
+              <td>{#if w.paused}<span class="badge paused-b">paused</span>{:else if w.self_paused}<span class="badge selfpaused-b">self-paused</span>{:else if w.degraded}<span class="badge degraded-b">overheating</span>{:else}<span class="badge ok">active</span>{/if}</td>
               <td class="actions">
                 {#if w.paused}
                   <button onclick={() => unpause(w.worker_id)} disabled={actionLoading}>unpause</button>
@@ -362,6 +363,7 @@
   .badge.block { background: #7f1d1d; color: #fca5a5; }
   .badge.idle { background: #78350f; color: #fcd34d; margin-left: 0.3em; }
   .badge.degraded-b { background: #7c2d12; color: #fdba74; }
+  .badge.selfpaused-b { background: #1e3a5f; color: #93c5fd; }
   .badge.stalled { background: #78350f; color: #fcd34d; margin-left: 0.3em; }
   .badge.paused-b { background: #374151; color: #d4d4dc; }
   .badge.tier-0 { background: #1f2937; }

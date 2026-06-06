@@ -13,7 +13,11 @@
     quarantined_at: string | null;
     quarantine_reason: string | null;
     paused_at: string | null;
-    capabilities?: { thermal?: { state?: string; current_temp_c?: number } } | null;
+    pause_reason: string | null;
+    capabilities?: {
+      thermal?: { state?: string; current_temp_c?: number };
+      self_paused?: boolean;
+    } | null;
   };
 
   const tierNames: Record<number, string> = {
@@ -142,7 +146,10 @@
                 {/if}
               {:else if w.paused_at}
                 <span class="badge paused-badge">paused</span>
-                <span class="muted"> — no work assigned (operational hold)</span>
+                <span class="muted"> — operator hold (no-fault){#if w.pause_reason}: {w.pause_reason}{/if}</span>
+              {:else if w.capabilities?.self_paused}
+                <span class="badge selfpaused-badge">self-paused</span>
+                <span class="muted"> — paused by the volunteer (still enrolled)</span>
               {:else if !w.last_heartbeat_at || (Date.now() - new Date(w.last_heartbeat_at).getTime()) > 180_000}
                 <span class="badge stale-badge">offline</span>
               {:else if w.capabilities?.thermal?.state === 'critical'}
@@ -194,6 +201,7 @@
   .quarantine-badge { background: #7f1d1d; color: #fca5a5; }
   .paused-badge { background: #374151; color: #d4d4dc; }
   .overheating-badge { background: #7c2d12; color: #fdba74; }
+  .selfpaused-badge { background: #1e3a5f; color: #93c5fd; }
   .retired-badge { background: #374151; color: #6b7280; }
   .actions { white-space: nowrap; }
   .stale-badge { background: #78350f; color: #fbbf24; }
