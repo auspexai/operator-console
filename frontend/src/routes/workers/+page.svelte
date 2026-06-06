@@ -13,6 +13,7 @@
     quarantined_at: string | null;
     quarantine_reason: string | null;
     paused_at: string | null;
+    capabilities?: { thermal?: { state?: string; current_temp_c?: number } } | null;
   };
 
   const tierNames: Record<number, string> = {
@@ -144,6 +145,11 @@
                 <span class="muted"> — no work assigned (operational hold)</span>
               {:else if !w.last_heartbeat_at || (Date.now() - new Date(w.last_heartbeat_at).getTime()) > 180_000}
                 <span class="badge stale-badge">offline</span>
+              {:else if w.capabilities?.thermal?.state === 'critical'}
+                <span class="badge overheating-badge">overheating</span>
+                <span class="muted">
+                  {#if w.capabilities?.thermal?.current_temp_c != null}— {w.capabilities.thermal.current_temp_c}°C, {/if}routed around until cooled
+                </span>
               {:else}
                 <span class="badge ok">online</span>
               {/if}
@@ -187,6 +193,7 @@
   .badge.ok { background: #14532d; color: #86efac; }
   .quarantine-badge { background: #7f1d1d; color: #fca5a5; }
   .paused-badge { background: #374151; color: #d4d4dc; }
+  .overheating-badge { background: #7c2d12; color: #fdba74; }
   .retired-badge { background: #374151; color: #6b7280; }
   .actions { white-space: nowrap; }
   .stale-badge { background: #78350f; color: #fbbf24; }

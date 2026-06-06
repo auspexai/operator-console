@@ -34,6 +34,7 @@
     trust_tier: number;
     model_count: number;
     paused: boolean;
+    degraded?: boolean;
     eligible_experiment_count: number;
   };
 
@@ -186,7 +187,7 @@
 
     <!-- 2. Workers eligibility / idleness -->
     <h2 class="section">Workers</h2>
-    <p class="muted">On-network workers and what they can take. <strong>idle</strong> = eligible for nothing currently queued. <strong>pause</strong> = no-fault operational hold (offered no work; stays enrolled).</p>
+    <p class="muted">On-network workers and what they can take. <strong>idle</strong> = eligible for nothing currently queued. <strong>pause</strong> = no-fault operational hold (offered no work; stays enrolled). <strong>overheating</strong> = thermal-critical (W-H); routed around until it cools.</p>
     {#if workers.length === 0}
       <p class="muted">No workers on the network.</p>
     {:else}
@@ -194,12 +195,12 @@
         <thead><tr><th>worker_id</th><th>tier</th><th>models</th><th>eligible for</th><th>state</th><th>actions</th></tr></thead>
         <tbody>
           {#each workers as w}
-            <tr class:paused={w.paused}>
+            <tr class:paused={w.paused || w.degraded}>
               <td class="mono">{w.worker_id}</td>
               <td><span class="badge tier-{w.trust_tier}">T{w.trust_tier}</span></td>
               <td>{w.model_count}</td>
-              <td>{w.eligible_experiment_count} exp{#if w.eligible_experiment_count === 0 && !w.paused}<span class="badge idle"> idle</span>{/if}</td>
-              <td>{#if w.paused}<span class="badge paused-b">paused</span>{:else}<span class="badge ok">active</span>{/if}</td>
+              <td>{w.eligible_experiment_count} exp{#if w.eligible_experiment_count === 0 && !w.paused && !w.degraded}<span class="badge idle"> idle</span>{/if}</td>
+              <td>{#if w.paused}<span class="badge paused-b">paused</span>{:else if w.degraded}<span class="badge degraded-b">overheating</span>{:else}<span class="badge ok">active</span>{/if}</td>
               <td class="actions">
                 {#if w.paused}
                   <button onclick={() => unpause(w.worker_id)} disabled={actionLoading}>unpause</button>
@@ -333,6 +334,7 @@
   .badge.ok { background: #14532d; color: #86efac; }
   .badge.block { background: #7f1d1d; color: #fca5a5; }
   .badge.idle { background: #78350f; color: #fcd34d; margin-left: 0.3em; }
+  .badge.degraded-b { background: #7c2d12; color: #fdba74; }
   .badge.paused-b { background: #374151; color: #d4d4dc; }
   .badge.tier-0 { background: #1f2937; }
   .badge.tier-1 { background: #1e3a5f; color: #93c5fd; }
