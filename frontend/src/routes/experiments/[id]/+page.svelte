@@ -17,6 +17,13 @@
     max_units: number | null;
     max_concurrent_assignments: number | null;
     max_payload_bytes: number | null;
+    // M-Results retention (O-M8). TTLs + projection are OPERATOR_ONLY.
+    retention_hold: boolean | null;
+    retention_hold_reason: string | null;
+    results_collected_at: string | null;
+    raw_payload_ttl_days: number | null;
+    consensus_ttl_days: number | null;
+    raw_payload_age_off_at: string | null;
   };
 
   type WorkUnitsResponse = {
@@ -130,6 +137,53 @@
     }
   }
 
+  // Retention hold / release (O-M8). Mirrors the account suspend/unsuspend
+  // pattern: mandatory reason on hold, confirm-gated release, silent refetch.
+  let holdModal = $state<{ reason: string } | null>(null);
+
+  async function submitHold() {
+    if (!holdModal || !holdModal.reason.trim()) return;
+    actionLoading = true;
+    try {
+      const r = await fetch(
+        `/api/v0/proxy/experiments/${encodeURIComponent(experimentId)}/actions/retention-hold`,
+        {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ reason: holdModal.reason }),
+        }
+      );
+      if (!r.ok) {
+        const detail = await r.json().catch(() => ({}));
+        throw new Error(JSON.stringify(detail));
+      }
+      holdModal = null;
+      await loadExperiment();
+    } catch (e) {
+      alert(`Place hold failed: ${(e as Error).message}`);
+    } finally {
+      actionLoading = false;
+    }
+  }
+
+  async function releaseHold() {
+    if (!confirm(`Release the retention hold on ${experimentId}? Age-off resumes per the normal schedule.`))
+      return;
+    actionLoading = true;
+    try {
+      const r = await fetch(
+        `/api/v0/proxy/experiments/${encodeURIComponent(experimentId)}/actions/release-hold`,
+        { method: 'POST' }
+      );
+      if (!r.ok) throw new Error(`HTTP ${r.status}`);
+      await loadExperiment();
+    } catch (e) {
+      alert(`Release hold failed: ${(e as Error).message}`);
+    } finally {
+      actionLoading = false;
+    }
+  }
+
   function formatBytes(bytes: number): string {
     if (bytes < 1024) return `${bytes} B`;
     if (bytes < 1048576) return `${(bytes / 1024).toFixed(1)} KB`;
@@ -205,6 +259,44 @@
         </dl>
       </section>
     {/if}
+
+    <section class="card">
+      <h2>Retention</h2>
+      <dl>
+        <dt>raw payload TTL</dt>
+        <dd>{experiment.raw_payload_ttl_days != null ? `${experiment.raw_payload_ttl_days} days` : '30 days (default)'}</dd>
+        <dt>consensus TTL</dt>
+        <dd>{experiment.consensus_ttl_days != null ? `${experiment.consensus_ttl_days} days` : 'experiment-lifetime (default)'}</dd>
+        <dt>results collected</dt>
+        <dd class="mono">{experiment.results_collected_at ? new Date(experiment.results_collected_at).toLocaleString() : '— not yet collected'}</dd>
+        <dt>raw age-off projected</dt>
+        <dd class="mono">
+          {#if experiment.raw_payload_age_off_at}
+            {new Date(experiment.raw_payload_age_off_at).toLocaleString()}
+          {:else}
+            <span class="muted">— anchored on collection</span>
+          {/if}
+        </dd>
+        <dt>retention hold</dt>
+        <dd>
+          {#if experiment.retention_hold}
+            <span class="badge held-badge">on hold</span>
+            {#if experiment.retention_hold_reason}
+              <div class="muted reason">reason: {experiment.retention_hold_reason}</div>
+            {/if}
+          {:else}
+            <span class="muted">none — age-off active</span>
+          {/if}
+        </dd>
+      </dl>
+      <div class="action-row" style="margin-top: 0.75em;">
+        {#if experiment.retention_hold}
+          <button onclick={releaseHold} disabled={actionLoading}>release hold</button>
+        {:else}
+          <button onclick={() => (holdModal = { reason: '' })} disabled={actionLoading}>place retention hold…</button>
+        {/if}
+      </div>
+    </section>
 
     {#if workUnits}
       <section class="card">
@@ -288,6 +380,32 @@
       </div>
     </div>
   {/if}
+
+  {#if holdModal}
+    <div class="modal-backdrop" onclick={() => (holdModal = null)}></div>
+    <div class="approval-modal">
+      <h2>Place retention hold</h2>
+      <p class="mono">{experimentId}</p>
+      <p class="warning">
+        A hold pauses age-off for this experiment's payloads until released — use
+        only for audit/legal retention. The reason is recorded in the audit log.
+      </p>
+      <label>
+        Reason (required)
+        <textarea
+          bind:value={holdModal.reason}
+          rows="3"
+          placeholder="Why must this experiment's data be retained? (e.g., litigation hold, regulatory inquiry, integrity investigation)"
+        ></textarea>
+      </label>
+      <div class="modal-actions">
+        <button onclick={() => (holdModal = null)}>cancel</button>
+        <button class="primary" onclick={submitHold} disabled={actionLoading || !holdModal.reason.trim()}>
+          place hold
+        </button>
+      </div>
+    </div>
+  {/if}
 </main>
 
 <style>
@@ -313,6 +431,8 @@
   .completed-badge { background: #14532d; color: #86efac; }
   .aborted-badge { background: #7f1d1d; color: #fca5a5; }
   .archived-badge { background: #374151; color: #6b7280; }
+  .held-badge { background: #854d0e; color: #fde68a; }
+  .reason { margin-top: 0.25em; font-size: 0.85em; }
   .muted { color: #6b7280; font-size: 0.95em; }
   .errortext { color: #fca5a5; }
   .progress-bar-container { background: #1f2937; border-radius: 4px; height: 0.75em; overflow: hidden; margin: 0.5em 0; }
@@ -332,6 +452,7 @@
   .approval-modal { position: fixed; top: 50%; left: 50%; transform: translate(-50%, -50%); background: #1a1e2a; border: 1px solid #2a2e3a; border-radius: 8px; padding: 1.5em; z-index: 11; width: 90%; max-width: 500px; }
   .approval-modal h2 { margin: 0 0 0.5em; color: #fff; font-size: 1.1em; }
   .approval-modal label { display: block; margin: 0.75em 0 0.25em; color: #9ca3af; font-size: 0.9em; }
-  .approval-modal select, .approval-modal input { width: 100%; padding: 0.4em; background: #0a0e1a; border: 1px solid #2a2e3a; border-radius: 4px; color: #d4d4dc; font: inherit; }
+  .approval-modal select, .approval-modal input, .approval-modal textarea { width: 100%; padding: 0.4em; background: #0a0e1a; border: 1px solid #2a2e3a; border-radius: 4px; color: #d4d4dc; font: inherit; resize: vertical; }
+  .warning { background: #422006; border: 1px solid #854d0e; color: #fde68a; border-radius: 6px; padding: 0.6em 0.8em; font-size: 0.85em; margin: 0.75em 0 0; }
   .modal-actions { display: flex; gap: 0.75em; justify-content: flex-end; margin-top: 1.25em; }
 </style>

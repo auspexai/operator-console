@@ -14,6 +14,7 @@ O-M6: experiment detail + work-units.
 from __future__ import annotations
 
 from typing import Any
+from urllib.parse import quote
 
 import httpx
 from fastapi import APIRouter, HTTPException, Request
@@ -185,6 +186,37 @@ def build_router(config) -> APIRouter:
     async def abort_experiment(request: Request, experiment_id: str) -> Any:
         return await _proxy_post(
             f"/api/v0/experiments/{experiment_id}/actions/abort",
+            _headers(request),
+        )
+
+    # ---- retention hold / release (O-M8) ----
+    # The coordinator takes `reason` as a query param (mandatory on hold,
+    # mirrors account-suspension); forward the body's reason URL-encoded.
+
+    @router.post("/experiments/{experiment_id}/actions/retention-hold")
+    async def retention_hold(request: Request, experiment_id: str) -> Any:
+        body = await request.json()
+        reason = (body.get("reason") or "").strip()
+        if not reason:
+            raise HTTPException(
+                status_code=422,
+                detail={
+                    "error": {
+                        "code": "reason_required",
+                        "message": "a reason is required to place a retention hold",
+                    }
+                },
+            )
+        return await _proxy_post(
+            f"/api/v0/experiments/{experiment_id}/actions/retention-hold"
+            f"?reason={quote(reason, safe='')}",
+            _headers(request),
+        )
+
+    @router.post("/experiments/{experiment_id}/actions/release-hold")
+    async def release_hold(request: Request, experiment_id: str) -> Any:
+        return await _proxy_post(
+            f"/api/v0/experiments/{experiment_id}/actions/release-hold",
             _headers(request),
         )
 
