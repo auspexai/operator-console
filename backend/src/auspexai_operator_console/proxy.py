@@ -252,4 +252,36 @@ def build_router(config) -> APIRouter:
         body = await request.json()
         return await _proxy_post("/api/v0/receipts/verify", _headers(request), body)
 
+    # ---- model-requests demand-board (M2) ----
+
+    @router.get("/model-requests")
+    async def list_model_requests(request: Request) -> Any:
+        status = request.query_params.get("status")
+        path = "/api/v0/model-requests"
+        if status:
+            path += f"?status={quote(status, safe='')}"
+        return await _proxy_get(path, _headers(request))
+
+    @router.get("/models/catalog")
+    async def models_catalog(request: Request) -> Any:
+        return await _proxy_get("/api/v0/models/catalog", _headers(request))
+
+    @router.post("/model-requests/{request_id}/actions/fulfil")
+    async def fulfil_model_request(request: Request, request_id: str) -> Any:
+        body = await request.json()
+        return await _proxy_post(
+            f"/api/v0/model-requests/{request_id}/actions/fulfil",
+            _headers(request),
+            body,
+        )
+
+    @router.post("/model-requests/{request_id}/actions/decline")
+    async def decline_model_request(request: Request, request_id: str) -> Any:
+        body = await request.json()
+        return await _proxy_post(
+            f"/api/v0/model-requests/{request_id}/actions/decline",
+            _headers(request),
+            body,
+        )
+
     return router

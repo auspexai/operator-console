@@ -6,6 +6,7 @@
     { href: '/workers', label: 'Workers' },
     { href: '/accounts', label: 'Accounts' },
     { href: '/tenants', label: 'Tenants' },
+    { href: '/model-requests', label: 'Model requests' },
     { href: '/experiments', label: 'Experiments' },
     { href: '/receipts', label: 'Receipts' },
     { href: '/audit', label: 'Audit' },
