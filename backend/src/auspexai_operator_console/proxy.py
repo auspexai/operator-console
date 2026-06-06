@@ -312,4 +312,22 @@ def build_router(config) -> APIRouter:
             body,
         )
 
+    @router.post("/experiments/{experiment_id}/actions/trigger-prestage")
+    async def trigger_prestage(request: Request, experiment_id: str) -> Any:
+        body = await request.json()
+        return await _proxy_post(
+            f"/api/v0/experiments/{experiment_id}/actions/trigger-prestage",
+            _headers(request),
+            body,
+        )
+
+    @router.post("/experiments/{experiment_id}/units/{unit_id}/actions/pin")
+    async def pin_unit(request: Request, experiment_id: str, unit_id: str) -> Any:
+        body = await request.json()
+        return await _proxy_post(
+            f"/api/v0/experiments/{experiment_id}/units/{unit_id}/actions/pin",
+            _headers(request),
+            body,
+        )
+
     return router

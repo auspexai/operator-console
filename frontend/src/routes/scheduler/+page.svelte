@@ -27,6 +27,7 @@
     eligible_worker_count: number;
     blocked: boolean;
     block_reason: string | null;
+    stalled_units?: number;
   };
 
   type SchedWorker = {
@@ -53,6 +54,7 @@
   let resolveModal = $state<{ requestId: string; modelId: string; action: 'fulfil' | 'decline'; reason: string } | null>(null);
   let pauseModal = $state<{ workerId: string; reason: string } | null>(null);
   let policyModal = $state<{ experimentId: string; label: string; policy: string; reason: string } | null>(null);
+  let prestageModal = $state<{ experimentId: string; label: string; reason: string } | null>(null);
 
   async function loadAll() {
     loading = true;
@@ -123,6 +125,13 @@
     await post(`/api/v0/proxy/experiments/${m.experimentId}/actions/set-integrity-policy`, { integrity_policy: m.policy, reason: m.reason }, 'set policy');
   }
 
+  async function submitPrestage() {
+    if (!prestageModal) return;
+    const m = prestageModal;
+    prestageModal = null;
+    await post(`/api/v0/proxy/experiments/${m.experimentId}/actions/trigger-prestage`, { reason: m.reason }, 'trigger pre-stage');
+  }
+
   const reqOrder: Record<string, number> = { pending: 0, available: 1, fulfilled: 2, declined: 3 };
   let sortedReqs = $derived([...requests].sort((a, b) => (reqOrder[a.status] ?? 9) - (reqOrder[b.status] ?? 9) || b.created_at.localeCompare(a.created_at)));
   let blockedExps = $derived(experiments.filter((e) => e.blocked));
@@ -175,9 +184,11 @@
               <td>{e.capable_worker_count} / {e.eligible_worker_count}</td>
               <td>
                 {#if e.blocked}<span class="badge block">blocked: {e.block_reason}</span>{:else}<span class="badge ok">ok</span>{/if}
+                {#if e.stalled_units}<span class="badge stalled" title="in-progress units stranded — every worker refused non-reofferably">{e.stalled_units} stalled</span>{/if}
               </td>
               <td class="actions">
                 <button onclick={() => (policyModal = { experimentId: e.experiment_id, label: e.tenant_experiment_label, policy: 'standard', reason: '' })} disabled={actionLoading}>set policy</button>
+                <button onclick={() => (prestageModal = { experimentId: e.experiment_id, label: e.tenant_experiment_label, reason: '' })} disabled={actionLoading}>pre-stage</button>
               </td>
             </tr>
           {/each}
@@ -313,6 +324,22 @@
       </div>
     </div>
   {/if}
+
+  {#if prestageModal}
+    <div class="modal-backdrop" onclick={() => (prestageModal = null)}></div>
+    <div class="tier-modal">
+      <h2>Trigger pre-stage</h2>
+      <p class="mono">{prestageModal.label}</p>
+      <p class="muted">Eagerly pulls this experiment's required model(s) onto eligible auto-acquire workers now (bounded by the replication need), so its units aren't bottlenecked on first-assignment pulls.</p>
+      <label>Reason (required)
+        <textarea bind:value={prestageModal.reason} rows="3" placeholder="recorded in the audit log"></textarea>
+      </label>
+      <div class="modal-actions">
+        <button onclick={() => (prestageModal = null)}>cancel</button>
+        <button class="primary" onclick={submitPrestage} disabled={actionLoading || !prestageModal.reason.trim()}>pre-stage</button>
+      </div>
+    </div>
+  {/if}
 </main>
 
 <style>
@@ -335,6 +362,7 @@
   .badge.block { background: #7f1d1d; color: #fca5a5; }
   .badge.idle { background: #78350f; color: #fcd34d; margin-left: 0.3em; }
   .badge.degraded-b { background: #7c2d12; color: #fdba74; }
+  .badge.stalled { background: #78350f; color: #fcd34d; margin-left: 0.3em; }
   .badge.paused-b { background: #374151; color: #d4d4dc; }
   .badge.tier-0 { background: #1f2937; }
   .badge.tier-1 { background: #1e3a5f; color: #93c5fd; }
