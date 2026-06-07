@@ -1,6 +1,7 @@
 <script lang="ts">
   import { onMount } from 'svelte';
   import Nav from '$lib/components/Nav.svelte';
+  import { subscribeFirehose } from '$lib/live';
 
   type Worker = {
     worker_id: string;
@@ -30,9 +31,10 @@
   let workers = $state<Worker[]>([]);
   let loading = $state(true);
   let error = $state<string | null>(null);
+  let live = $state(false);
 
-  async function loadWorkers() {
-    loading = true;
+  async function loadWorkers(silent = false) {
+    if (!silent) loading = true;
     error = null;
     try {
       const r = await fetch('/api/v0/proxy/workers');
@@ -42,7 +44,7 @@
     } catch (e) {
       error = (e as Error).message;
     } finally {
-      loading = false;
+      if (!silent) loading = false;
     }
   }
 
@@ -98,7 +100,18 @@
     }
   }
 
-  onMount(loadWorkers);
+  onMount(() => {
+    loadWorkers();
+    // M6 step 4: live fleet view — re-snapshot on a worker-state transition
+    // (quarantine/pause/retire/…) emitted on the firehose, + on reconnect.
+    return subscribeFirehose({
+      types: ['worker.status'],
+      onEvent: () => loadWorkers(true),
+      onReconnect: () => loadWorkers(true),
+      onOpen: () => (live = true),
+      onError: () => (live = false),
+    });
+  });
 </script>
 
 <svelte:head>
@@ -107,7 +120,9 @@
 
 <main>
   <header>
-    <h1><a href="/" class="brand-link"><span class="brand">auspex[ai]</span></a> workers fleet</h1>
+    <h1><a href="/" class="brand-link"><span class="brand">auspex[ai]</span></a> workers fleet
+      {#if live}<span class="live-dot" title="live — fleet status updates without a refresh">● live</span>{/if}
+    </h1>
   </header>
   <Nav />
 
@@ -189,6 +204,7 @@
   h1 { margin: 0; font-size: 1.5em; font-weight: 600; color: #fff; }
   .brand { color: #a78bfa; }
   .brand-link { text-decoration: none; color: inherit; }
+  .live-dot { font-size: 0.55em; font-weight: 500; color: #86efac; vertical-align: middle; margin-left: 0.5em; }
   table { width: 100%; border-collapse: collapse; font-size: 0.9em; }
   th { text-align: left; padding: 0.5em; border-bottom: 2px solid #2a2e3a; color: #9ca3af; font-weight: 500; }
   td { padding: 0.5em; border-bottom: 1px solid #1a1e2a; }

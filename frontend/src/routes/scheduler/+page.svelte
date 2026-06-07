@@ -1,6 +1,7 @@
 <script lang="ts">
   import { onMount } from 'svelte';
   import Nav from '$lib/components/Nav.svelte';
+  import { subscribeFirehose } from '$lib/live';
 
   type ModelRequest = {
     request_id: string;
@@ -52,14 +53,15 @@
   let loading = $state(true);
   let error = $state<string | null>(null);
   let actionLoading = $state(false);
+  let live = $state(false);
 
   let resolveModal = $state<{ requestId: string; modelId: string; action: 'fulfil' | 'decline'; reason: string } | null>(null);
   let pauseModal = $state<{ workerId: string; reason: string } | null>(null);
   let policyModal = $state<{ experimentId: string; label: string; policy: string; reason: string } | null>(null);
   let prestageModal = $state<{ experimentId: string; label: string; reason: string } | null>(null);
 
-  async function loadAll() {
-    loading = true;
+  async function loadAll(silent = false) {
+    if (!silent) loading = true;
     error = null;
     try {
       const [stateR, catR, reqR] = await Promise.all([
@@ -81,7 +83,7 @@
     } catch (e) {
       error = (e as Error).message;
     } finally {
-      loading = false;
+      if (!silent) loading = false;
     }
   }
 
@@ -143,7 +145,18 @@
     return (caps?.models || []).join(', ');
   }
 
-  onMount(loadAll);
+  onMount(() => {
+    loadAll();
+    // M6 step 4: live scheduler triage — re-snapshot on a new submission, a
+    // lifecycle change, or a worker-state transition (all shift eligibility/queue).
+    return subscribeFirehose({
+      types: ['experiment.submitted', 'experiment.status', 'worker.status'],
+      onEvent: () => loadAll(true),
+      onReconnect: () => loadAll(true),
+      onOpen: () => (live = true),
+      onError: () => (live = false),
+    });
+  });
 </script>
 
 <svelte:head>
@@ -152,7 +165,9 @@
 
 <main>
   <header>
-    <h1><a href="/" class="brand-link"><span class="brand">auspex[ai]</span></a> scheduler</h1>
+    <h1><a href="/" class="brand-link"><span class="brand">auspex[ai]</span></a> scheduler
+      {#if live}<span class="live-dot" title="live — triage updates without a refresh">● live</span>{/if}
+    </h1>
   </header>
   <Nav />
 
@@ -352,6 +367,7 @@
   h2.section { margin: 1.75em 0 0.25em; font-size: 1.1em; font-weight: 600; color: #d4d4dc; border-bottom: 1px solid #2a2e3a; padding-bottom: 0.3em; }
   .brand { color: #a78bfa; }
   .brand-link { text-decoration: none; color: inherit; }
+  .live-dot { font-size: 0.55em; font-weight: 500; color: #86efac; vertical-align: middle; margin-left: 0.5em; }
   table { width: 100%; border-collapse: collapse; font-size: 0.9em; }
   th { text-align: left; padding: 0.5em; border-bottom: 2px solid #2a2e3a; color: #9ca3af; font-weight: 500; }
   td { padding: 0.5em; border-bottom: 1px solid #1a1e2a; vertical-align: top; }
