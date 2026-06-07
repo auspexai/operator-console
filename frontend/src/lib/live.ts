@@ -61,6 +61,11 @@ export type AutoRefreshOptions = {
   /** Baseline poll interval in ms. Default 30s — the floor of liveness even when
    *  no event ever fires (heartbeat age, offline detection, thermal, progress). */
   intervalMs?: number;
+  /** Optional doorbell predicate. When given, a firehose event only triggers an
+   *  immediate re-snapshot if this returns true — so a *detail* page can scope to
+   *  its own experiment/account id instead of re-snapshotting on every event.
+   *  Reconnect always re-snapshots regardless (gap recovery). */
+  eventFilter?: (ev: LiveEvent) => boolean;
 };
 
 /**
@@ -80,7 +85,7 @@ export type AutoRefreshOptions = {
  * Returns a teardown; return it from the component's `onMount`.
  */
 export function autoRefresh(opts: AutoRefreshOptions): () => void {
-  const { refresh, setLive, types = [], intervalMs = 30_000 } = opts;
+  const { refresh, setLive, types = [], intervalMs = 30_000, eventFilter } = opts;
   let stopped = false;
   const tick = async () => {
     if (stopped) return;
@@ -95,7 +100,9 @@ export function autoRefresh(opts: AutoRefreshOptions): () => void {
   if (types.length > 0) {
     unsub = subscribeFirehose({
       types,
-      onEvent: () => void tick(),
+      onEvent: (ev) => {
+        if (!eventFilter || eventFilter(ev)) void tick();
+      },
       onReconnect: () => void tick(),
     });
   }

@@ -2,6 +2,8 @@
   import { onMount } from 'svelte';
   import { page } from '$app/state';
   import Nav from '$lib/components/Nav.svelte';
+  import LiveDot from '$lib/components/LiveDot.svelte';
+  import { autoRefresh, type LiveEvent } from '$lib/live';
 
   type Account = {
     account_id: string;
@@ -58,6 +60,7 @@
   let loading = $state(true);
   let error = $state<string | null>(null);
   let actionLoading = $state(false);
+  let live = $state(false);
 
   let tierModal = $state<{
     action: 'promote' | 'demote';
@@ -65,9 +68,8 @@
     reason: string;
   } | null>(null);
 
-  async function loadAccount() {
-    loading = true;
-    error = null;
+  async function loadAccount(silent = false): Promise<boolean> {
+    if (!silent) loading = true;
     try {
       const [accountsRes, statsRes, workersRes] = await Promise.all([
         fetch('/api/v0/proxy/accounts'),
@@ -89,10 +91,13 @@
         const allWorkers: Worker[] = workersBody.workers || workersBody || [];
         boundWorkers = allWorkers.filter(w => w.account_id === accountId);
       }
+      error = null;
+      return true;
     } catch (e) {
-      error = (e as Error).message;
+      if (!silent) error = (e as Error).message;
+      return false;
     } finally {
-      loading = false;
+      if (!silent) loading = false;
     }
   }
 
@@ -173,7 +178,21 @@
     }
   }
 
-  onMount(loadAccount);
+  onMount(() => {
+    loadAccount().then((ok) => (live = ok));
+    // Poll is the truth, the SSE doorbell is a hint. Re-snapshot on a bound
+    // worker's status change (scoped to this account) or any receipt issuance (a
+    // receipt can auto-promote this account — shifting the tier — and it's low
+    // frequency, so we don't filter it by account).
+    return autoRefresh({
+      refresh: () => loadAccount(true),
+      setLive: (v) => (live = v),
+      types: ['worker.status', 'receipt.issued'],
+      eventFilter: (ev: LiveEvent) =>
+        ev.type === 'receipt.issued' ||
+        (ev.data as { account_id?: string } | null)?.account_id === accountId,
+    });
+  });
 </script>
 
 <svelte:head>
@@ -182,7 +201,9 @@
 
 <main>
   <header>
-    <h1><a href="/" class="brand-link"><span class="brand">auspex[ai]</span></a> account detail</h1>
+    <h1><a href="/" class="brand-link"><span class="brand">auspex[ai]</span></a> account detail
+      {#if !loading}<LiveDot {live} />{/if}
+    </h1>
   </header>
   <Nav />
 

@@ -2,6 +2,8 @@
   import { onMount } from 'svelte';
   import { page } from '$app/state';
   import Nav from '$lib/components/Nav.svelte';
+  import LiveDot from '$lib/components/LiveDot.svelte';
+  import { autoRefresh, type LiveEvent } from '$lib/live';
 
   type Experiment = {
     experiment_id: string;
@@ -39,6 +41,7 @@
   let loading = $state(true);
   let error = $state<string | null>(null);
   let actionLoading = $state(false);
+  let live = $state(false);
 
   let approvalForm = $state<{
     integrity_policy: string;
@@ -57,9 +60,8 @@
     archived: 'archived-badge',
   };
 
-  async function loadExperiment() {
-    loading = true;
-    error = null;
+  async function loadExperiment(silent = false): Promise<boolean> {
+    if (!silent) loading = true;
     try {
       const [expRes, wuRes] = await Promise.all([
         fetch(`/api/v0/proxy/experiments/${encodeURIComponent(experimentId)}`),
@@ -70,10 +72,13 @@
       if (wuRes.ok) {
         workUnits = await wuRes.json();
       }
+      error = null;
+      return true;
     } catch (e) {
-      error = (e as Error).message;
+      if (!silent) error = (e as Error).message;
+      return false;
     } finally {
-      loading = false;
+      if (!silent) loading = false;
     }
   }
 
@@ -198,7 +203,19 @@
   let completedUnits = $derived(workUnits?.counts_by_status?.completed ?? 0);
   let progressPct = $derived(totalUnits > 0 ? Math.round((completedUnits / totalUnits) * 100) : 0);
 
-  onMount(loadExperiment);
+  onMount(() => {
+    loadExperiment().then((ok) => (live = ok));
+    // Poll is the truth, the SSE doorbell is a hint. Scope the doorbell to THIS
+    // experiment's frames (the firehose carries every experiment) so progress +
+    // lifecycle update live without re-snapshotting on unrelated traffic.
+    return autoRefresh({
+      refresh: () => loadExperiment(true),
+      setLive: (v) => (live = v),
+      types: ['experiment.status', 'unit.progress', 'receipt.issued'],
+      eventFilter: (ev: LiveEvent) =>
+        (ev.data as { experiment_id?: string } | null)?.experiment_id === experimentId,
+    });
+  });
 </script>
 
 <svelte:head>
@@ -207,7 +224,9 @@
 
 <main>
   <header>
-    <h1><a href="/" class="brand-link"><span class="brand">auspex[ai]</span></a> experiment detail</h1>
+    <h1><a href="/" class="brand-link"><span class="brand">auspex[ai]</span></a> experiment detail
+      {#if !loading}<LiveDot {live} />{/if}
+    </h1>
   </header>
   <Nav />
 

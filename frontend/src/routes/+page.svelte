@@ -1,6 +1,8 @@
 <script lang="ts">
   import { onMount } from 'svelte';
   import Nav from '$lib/components/Nav.svelte';
+  import LiveDot from '$lib/components/LiveDot.svelte';
+  import { autoRefresh } from '$lib/live';
 
   type CoordStatus = {
     url: string;
@@ -40,6 +42,31 @@
   let auth = $state<WhoAmI | null>(null);
   let health = $state<Health | null>(null);
   let healthError = $state<string | null>(null);
+
+  // M6 #4a: live fleet-size indicator (network.status). The count is the same
+  // count_active the coordinator emits; we snapshot it from /workers and let the
+  // network.status / worker.status doorbell + baseline poll keep it live.
+  const STALE_MS = 180_000; // mirrors worker_status.STALE_HEARTBEAT_MINUTES (3m)
+  let networkActive = $state<number | null>(null);
+  let networkLive = $state(false);
+  let networkStop: (() => void) | null = null;
+
+  async function refreshNetwork(): Promise<boolean> {
+    try {
+      const r = await fetch('/api/v0/proxy/workers');
+      if (!r.ok) throw new Error(`HTTP ${r.status}`);
+      const body = await r.json();
+      const workers = (body.workers || body || []) as Array<Record<string, unknown>>;
+      const now = Date.now();
+      networkActive = workers.filter((w) => {
+        if (w.retired_at || w.quarantined_at || w.paused_at || !w.last_heartbeat_at) return false;
+        return now - new Date(w.last_heartbeat_at as string).getTime() <= STALE_MS;
+      }).length;
+      return true;
+    } catch {
+      return false;
+    }
+  }
 
   let signinError = $state<string | null>(null);
   let deviceFlow = $state<DeviceFlowStart | null>(null);
@@ -252,11 +279,25 @@
         refreshHealth();
         healthInterval = setInterval(refreshHealth, 5000);
       }
+      if (!networkStop) {
+        refreshNetwork().then((ok) => (networkLive = ok));
+        networkStop = autoRefresh({
+          refresh: refreshNetwork,
+          setLive: (v) => (networkLive = v),
+          types: ['network.status', 'worker.status'],
+        });
+      }
     } else {
       if (healthInterval) {
         clearInterval(healthInterval);
         healthInterval = null;
         health = null;
+      }
+      if (networkStop) {
+        networkStop();
+        networkStop = null;
+        networkActive = null;
+        networkLive = false;
       }
     }
   });
@@ -265,6 +306,7 @@
     refreshAuth();
     return () => {
       if (healthInterval) clearInterval(healthInterval);
+      if (networkStop) networkStop();
       stopPolling();
     };
   });
@@ -431,16 +473,20 @@
       {/if}
     </section>
 
-    <Nav />
-
     <section>
-      <h2>Coming soon</h2>
-      <ul class="roadmap">
-        <li><strong>O-M4:</strong> Audit log — who did what across the network.</li>
-        <li><strong>O-M6:</strong> Experiment detail — per-experiment drill-down with unit history.</li>
-        <li><strong>O-M7:</strong> Release pipeline — coordinated worker + coordinator upgrades.</li>
-      </ul>
+      <h2>Network</h2>
+      <p class="netstat">
+        {#if networkActive === null}
+          <span class="muted">Loading…</span>
+        {:else}
+          <strong>{networkActive}</strong> worker{networkActive === 1 ? '' : 's'} online
+          <LiveDot live={networkLive} />
+        {/if}
+        <span class="muted"> · <a href="/workers" class="netlink">view fleet →</a></span>
+      </p>
     </section>
+
+    <Nav />
 
     <footer>
       <p class="muted">
@@ -617,11 +663,15 @@
     gap: 0.6em;
     margin-top: 0.75em;
   }
-  ul.roadmap {
-    padding-left: 1.2em;
+  .netstat {
+    font-size: 1.05em;
   }
-  ul.roadmap li {
-    margin-bottom: 0.5em;
+  .netlink {
+    color: #a78bfa;
+    text-decoration: none;
+  }
+  .netlink:hover {
+    text-decoration: underline;
   }
   footer {
     margin-top: 2.5em;
