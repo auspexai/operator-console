@@ -13,13 +13,18 @@ O-M6: experiment detail + work-units.
 
 from __future__ import annotations
 
+from collections.abc import AsyncIterator
 from typing import Any
 from urllib.parse import quote
 
 import httpx
 from fastapi import APIRouter, HTTPException, Request
+from fastapi.responses import StreamingResponse
 
 from .auth import coord_headers, require_session
+
+# Forwarded verbatim to the browser so intermediaries flush SSE frames immediately.
+_SSE_HEADERS = {"Cache-Control": "no-cache", "Connection": "keep-alive", "X-Accel-Buffering": "no"}
 
 
 class ProxyError(Exception):
@@ -56,6 +61,25 @@ def build_router(config) -> APIRouter:
                 else r.text,
             )
         return r.json()
+
+    async def _proxy_sse(path: str, headers: dict[str, str]) -> AsyncIterator[bytes]:
+        """Tail an upstream coordinator `text/event-stream` and forward its bytes
+        verbatim to the browser (which can't sign coordinator requests). Generic —
+        reusable for any coordinator SSE route (the researcher dashboard reuses this
+        shape for its tenant-scoped stream). Long-lived: no read timeout (the
+        coordinator's `: ping` keepalive holds it open). On an upstream error the
+        SSE response status is already 200, so we emit a comment + close and let the
+        browser's EventSource reconnect; the real auth gate is `require_session`
+        (synchronous, before the stream starts)."""
+        timeout = httpx.Timeout(10.0, read=None)
+        req_headers = {**headers, "Accept": "text/event-stream"}
+        async with httpx.AsyncClient(timeout=timeout) as client:
+            async with client.stream("GET", f"{config.coord_url}{path}", headers=req_headers) as r:
+                if r.status_code >= 400:
+                    yield f": upstream error {r.status_code}\n\n".encode()
+                    return
+                async for chunk in r.aiter_bytes():
+                    yield chunk
 
     # ---- workers fleet ----
 
@@ -299,9 +323,7 @@ def build_router(config) -> APIRouter:
 
     @router.post("/workers/{worker_id}/actions/unpause")
     async def unpause_worker(request: Request, worker_id: str) -> Any:
-        return await _proxy_post(
-            f"/api/v0/workers/{worker_id}/actions/unpause", _headers(request)
-        )
+        return await _proxy_post(f"/api/v0/workers/{worker_id}/actions/unpause", _headers(request))
 
     @router.post("/experiments/{experiment_id}/actions/set-integrity-policy")
     async def set_integrity_policy(request: Request, experiment_id: str) -> Any:
@@ -328,6 +350,22 @@ def build_router(config) -> APIRouter:
             f"/api/v0/experiments/{experiment_id}/units/{unit_id}/actions/pin",
             _headers(request),
             body,
+        )
+
+    # ---- live event stream (M6) ----
+
+    @router.get("/events")
+    async def proxy_firehose(request: Request) -> StreamingResponse:
+        """Maintainer firehose, proxied to the browser: every experiment's events
+        (experiment.submitted/status, unit.progress, receipt.issued) + fleet events
+        (worker.status, network.status). The console REST-snapshots, then tails this
+        to update live (the approval queue surfaces a pending experiment without a
+        refresh). `_headers` runs require_session first → 401/403 before streaming."""
+        headers = _headers(request)
+        return StreamingResponse(
+            _proxy_sse("/api/v0/events", headers),
+            media_type="text/event-stream",
+            headers=_SSE_HEADERS,
         )
 
     return router
