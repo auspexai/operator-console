@@ -1,6 +1,8 @@
 <script lang="ts">
   import { onMount } from 'svelte';
   import Nav from '$lib/components/Nav.svelte';
+  import LiveDot from '$lib/components/LiveDot.svelte';
+  import { autoRefresh } from '$lib/live';
 
   type Tenant = {
     tenant_id: string;
@@ -51,6 +53,7 @@
   let tenants = $state<Tenant[]>([]);
   let loading = $state(true);
   let error = $state<string | null>(null);
+  let live = $state(false);
 
   // tenant_id → linkage (lazy-loaded on expand). `null` = loading; a string key
   // absent = not yet expanded.
@@ -58,19 +61,46 @@
   let linkageErrors = $state<Record<string, string>>({});
   let expanded = $state<Record<string, boolean>>({});
 
-  async function loadTenants() {
-    loading = true;
-    error = null;
+  async function loadTenants(silent = false): Promise<boolean> {
+    if (!silent) loading = true;
     try {
       const r = await fetch('/api/v0/proxy/tenants');
       if (!r.ok) throw new Error(`HTTP ${r.status}`);
       const body = await r.json();
       tenants = body.tenants || body || [];
+      error = null;
+      return true;
     } catch (e) {
-      error = (e as Error).message;
+      if (!silent) error = (e as Error).message;
+      return false;
     } finally {
-      loading = false;
+      if (!silent) loading = false;
     }
+  }
+
+  // Silently re-fetch one tenant's linkage (keeps a bound worker's heartbeat /
+  // status fresh in an expanded panel). On a transient failure keep the prior
+  // linkage on screen rather than flipping the panel to an error.
+  async function refreshLinkage(tenantId: string): Promise<boolean> {
+    try {
+      const r = await fetch(`/api/v0/proxy/tenants/${tenantId}/linkage`);
+      if (!r.ok) throw new Error(`HTTP ${r.status}`);
+      const body: Linkage = await r.json();
+      body.workers = body.workers ?? [];
+      linkages[tenantId] = body;
+      delete linkageErrors[tenantId];
+      return true;
+    } catch {
+      return false;
+    }
+  }
+
+  // The full visible surface: the tenant list + every currently-expanded linkage.
+  async function refreshAll(silent = false): Promise<boolean> {
+    const listOk = await loadTenants(silent);
+    const openIds = Object.keys(expanded).filter((id) => expanded[id] && linkages[id]);
+    const linkOk = await Promise.all(openIds.map((id) => refreshLinkage(id)));
+    return listOk && linkOk.every(Boolean);
   }
 
   async function toggle(tenantId: string) {
@@ -95,7 +125,17 @@
   const fmt = (iso: string | null | undefined) => (iso ? new Date(iso).toLocaleString() : '—');
   const short = (hex: string | null | undefined) => (hex ? `${hex.slice(0, 16)}…` : '—');
 
-  onMount(loadTenants);
+  onMount(() => {
+    loadTenants().then((ok) => (live = ok));
+    // Poll is the truth, the SSE doorbell is a hint (M8 principle). Poll the whole
+    // visible surface (list + expanded linkages); worker.status nudges sooner so a
+    // bound worker going quarantined/retired reflects without a manual refresh.
+    return autoRefresh({
+      refresh: () => refreshAll(true),
+      setLive: (v) => (live = v),
+      types: ['worker.status'],
+    });
+  });
 </script>
 
 <svelte:head>
@@ -104,7 +144,9 @@
 
 <main>
   <header>
-    <h1><a href="/" class="brand-link"><span class="brand">auspex[ai]</span></a> tenants</h1>
+    <h1><a href="/" class="brand-link"><span class="brand">auspex[ai]</span></a> tenants
+      {#if !loading}<LiveDot {live} />{/if}
+    </h1>
   </header>
   <Nav />
 

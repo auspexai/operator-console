@@ -1,7 +1,8 @@
 <script lang="ts">
   import { onMount } from 'svelte';
   import Nav from '$lib/components/Nav.svelte';
-  import { subscribeFirehose } from '$lib/live';
+  import { autoRefresh } from '$lib/live';
+  import LiveDot from '$lib/components/LiveDot.svelte';
 
   type Experiment = {
     experiment_id: string;
@@ -32,17 +33,20 @@
     max_payload_bytes: string;
   } | null>(null);
 
-  async function loadExperiments(silent = false) {
-    // silent = a live re-snapshot (firehose nudge); don't flash the loading state.
+  async function loadExperiments(silent = false): Promise<boolean> {
+    // silent = a background re-snapshot (poll or firehose nudge); don't flash the
+    // loading state, and don't replace the page with an error on a transient blip.
     if (!silent) loading = true;
-    error = null;
     try {
       const r = await fetch('/api/v0/proxy/experiments');
       if (!r.ok) throw new Error(`HTTP ${r.status}`);
       const body = await r.json();
       experiments = body.experiments || body || [];
+      error = null;
+      return true;
     } catch (e) {
-      error = (e as Error).message;
+      if (!silent) error = (e as Error).message;
+      return false;
     } finally {
       if (!silent) loading = false;
     }
@@ -113,16 +117,14 @@
   };
 
   onMount(() => {
-    loadExperiments();
-    // Snapshot-then-tail (M6): a newly-submitted experiment appears in the approval
-    // queue, and status changes reflect, without a manual refresh. Re-snapshot on a
-    // relevant event + on reconnect (the bus is lossy; the snapshot is the truth).
-    return subscribeFirehose({
+    loadExperiments().then((ok) => (live = ok));
+    // Poll is the truth, the SSE doorbell is a hint (M8 principle). The baseline
+    // poll catches anything missed; experiment.submitted/status nudge an instant
+    // re-snapshot so a new submission lands in the approval queue without a refresh.
+    return autoRefresh({
+      refresh: () => loadExperiments(true),
+      setLive: (v) => (live = v),
       types: ['experiment.submitted', 'experiment.status'],
-      onEvent: () => loadExperiments(true),
-      onReconnect: () => loadExperiments(true),
-      onOpen: () => (live = true),
-      onError: () => (live = false),
     });
   });
 </script>
@@ -134,7 +136,7 @@
 <main>
   <header>
     <h1><a href="/" class="brand-link"><span class="brand">auspex[ai]</span></a> experiments
-      {#if live}<span class="live-dot" title="live — the approval queue updates without a refresh">● live</span>{/if}
+      {#if !loading}<LiveDot {live} />{/if}
     </h1>
   </header>
   <Nav />
@@ -233,7 +235,6 @@
   header { border-bottom: 1px solid #2a2e3a; padding-bottom: 0.75em; margin-bottom: 1.5em; }
   h1 { margin: 0; font-size: 1.5em; font-weight: 600; color: #fff; }
   .brand { color: #a78bfa; }
-  .live-dot { font-size: 0.55em; font-weight: 500; color: #86efac; vertical-align: middle; margin-left: 0.5em; }
   .brand-link { text-decoration: none; color: inherit; }
   table { width: 100%; border-collapse: collapse; font-size: 0.9em; }
   th { text-align: left; padding: 0.5em; border-bottom: 2px solid #2a2e3a; color: #9ca3af; font-weight: 500; }

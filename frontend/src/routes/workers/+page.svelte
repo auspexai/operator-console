@@ -1,7 +1,8 @@
 <script lang="ts">
   import { onMount } from 'svelte';
   import Nav from '$lib/components/Nav.svelte';
-  import { subscribeFirehose } from '$lib/live';
+  import { autoRefresh } from '$lib/live';
+  import LiveDot from '$lib/components/LiveDot.svelte';
 
   type Worker = {
     worker_id: string;
@@ -33,16 +34,20 @@
   let error = $state<string | null>(null);
   let live = $state(false);
 
-  async function loadWorkers(silent = false) {
+  async function loadWorkers(silent = false): Promise<boolean> {
     if (!silent) loading = true;
-    error = null;
     try {
       const r = await fetch('/api/v0/proxy/workers');
       if (!r.ok) throw new Error(`HTTP ${r.status}`);
       const body = await r.json();
       workers = body.workers || body || [];
+      error = null;
+      return true;
     } catch (e) {
-      error = (e as Error).message;
+      // Silent (poll) failures don't replace the page with an error banner — the
+      // last-good data stays and the indicator flips to "● stale".
+      if (!silent) error = (e as Error).message;
+      return false;
     } finally {
       if (!silent) loading = false;
     }
@@ -101,15 +106,15 @@
   }
 
   onMount(() => {
-    loadWorkers();
-    // M6 step 4: live fleet view — re-snapshot on a worker-state transition
-    // (quarantine/pause/retire/…) emitted on the firehose, + on reconnect.
-    return subscribeFirehose({
+    loadWorkers().then((ok) => (live = ok));
+    // Poll is the truth, the SSE doorbell is a hint. A worker heartbeat emits no
+    // event, so the baseline poll keeps "last heartbeat" / online-offline /
+    // thermal honest; worker.status nudges an instant re-snapshot on operator
+    // transitions (quarantine/pause/retire/…).
+    return autoRefresh({
+      refresh: () => loadWorkers(true),
+      setLive: (v) => (live = v),
       types: ['worker.status'],
-      onEvent: () => loadWorkers(true),
-      onReconnect: () => loadWorkers(true),
-      onOpen: () => (live = true),
-      onError: () => (live = false),
     });
   });
 </script>
@@ -121,7 +126,7 @@
 <main>
   <header>
     <h1><a href="/" class="brand-link"><span class="brand">auspex[ai]</span></a> workers fleet
-      {#if live}<span class="live-dot" title="live — fleet status updates without a refresh">● live</span>{/if}
+      {#if !loading}<LiveDot {live} />{/if}
     </h1>
   </header>
   <Nav />
@@ -204,7 +209,6 @@
   h1 { margin: 0; font-size: 1.5em; font-weight: 600; color: #fff; }
   .brand { color: #a78bfa; }
   .brand-link { text-decoration: none; color: inherit; }
-  .live-dot { font-size: 0.55em; font-weight: 500; color: #86efac; vertical-align: middle; margin-left: 0.5em; }
   table { width: 100%; border-collapse: collapse; font-size: 0.9em; }
   th { text-align: left; padding: 0.5em; border-bottom: 2px solid #2a2e3a; color: #9ca3af; font-weight: 500; }
   td { padding: 0.5em; border-bottom: 1px solid #1a1e2a; }

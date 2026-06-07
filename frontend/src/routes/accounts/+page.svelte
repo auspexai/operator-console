@@ -1,6 +1,8 @@
 <script lang="ts">
   import { onMount } from 'svelte';
   import Nav from '$lib/components/Nav.svelte';
+  import LiveDot from '$lib/components/LiveDot.svelte';
+  import { autoRefresh } from '$lib/live';
 
   type Account = {
     account_id: string;
@@ -28,6 +30,7 @@
   let loading = $state(true);
   let error = $state<string | null>(null);
   let actionLoading = $state(false);
+  let live = $state(false);
 
   let tierModal = $state<{
     accountId: string;
@@ -36,18 +39,20 @@
     reason: string;
   } | null>(null);
 
-  async function loadAccounts() {
-    loading = true;
-    error = null;
+  async function loadAccounts(silent = false): Promise<boolean> {
+    if (!silent) loading = true;
     try {
       const r = await fetch('/api/v0/proxy/accounts');
       if (!r.ok) throw new Error(`HTTP ${r.status}`);
       const body = await r.json();
       accounts = body.accounts || body || [];
+      error = null;
+      return true;
     } catch (e) {
-      error = (e as Error).message;
+      if (!silent) error = (e as Error).message;
+      return false;
     } finally {
-      loading = false;
+      if (!silent) loading = false;
     }
   }
 
@@ -128,7 +133,17 @@
     }
   }
 
-  onMount(loadAccounts);
+  onMount(() => {
+    loadAccounts().then((ok) => (live = ok));
+    // Poll is the truth, the SSE doorbell is a hint (M8 principle). The baseline
+    // poll keeps tier/status current; receipt.issued nudges sooner because it can
+    // auto-promote an account (T1→T2) in the background, shifting the tier badge.
+    return autoRefresh({
+      refresh: () => loadAccounts(true),
+      setLive: (v) => (live = v),
+      types: ['receipt.issued'],
+    });
+  });
 </script>
 
 <svelte:head>
@@ -137,7 +152,9 @@
 
 <main>
   <header>
-    <h1><a href="/" class="brand-link"><span class="brand">auspex[ai]</span></a> accounts</h1>
+    <h1><a href="/" class="brand-link"><span class="brand">auspex[ai]</span></a> accounts
+      {#if !loading}<LiveDot {live} />{/if}
+    </h1>
   </header>
   <Nav />
 

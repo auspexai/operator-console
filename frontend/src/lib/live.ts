@@ -48,3 +48,60 @@ export function subscribeFirehose(opts: FirehoseOptions): () => void {
   }
   return () => es.close();
 }
+
+export type AutoRefreshOptions = {
+  /** Re-snapshot the page's data. Resolve `true` on success, `false` on failure
+   *  (throwing is also treated as failure). Drives the live/stale indicator. */
+  refresh: () => Promise<boolean>;
+  /** Receives the live state after each refresh (true = ok, false = failed). */
+  setLive: (live: boolean) => void;
+  /** Firehose event types that should trigger an *immediate* re-snapshot (the
+   *  doorbell). Omit/empty for poll-only pages (no relevant live events). */
+  types?: string[];
+  /** Baseline poll interval in ms. Default 30s — the floor of liveness even when
+   *  no event ever fires (heartbeat age, offline detection, thermal, progress). */
+  intervalMs?: number;
+};
+
+/**
+ * Complete the M8 principle on a console page: **the poll is the source of
+ * truth; the SSE doorbell is only a hint to poll sooner.**
+ *
+ *   - A baseline `setInterval` re-snapshot every `intervalMs` keeps *continuous*
+ *     telemetry honest — heartbeat age, online/offline, thermal, progress — none
+ *     of which emit a per-tick event.
+ *   - (Optional) an immediate re-snapshot on each firehose event + on reconnect,
+ *     so *discrete* transitions (approve/pause/quarantine/…) show up instantly.
+ *
+ * `live` reflects whether the most recent refresh succeeded, so the shared
+ * indicator reads "● live" when updates are flowing and "● stale" when the poll
+ * is failing — the same meaning on every page (events present or not).
+ *
+ * Returns a teardown; return it from the component's `onMount`.
+ */
+export function autoRefresh(opts: AutoRefreshOptions): () => void {
+  const { refresh, setLive, types = [], intervalMs = 30_000 } = opts;
+  let stopped = false;
+  const tick = async () => {
+    if (stopped) return;
+    try {
+      setLive(await refresh());
+    } catch {
+      setLive(false);
+    }
+  };
+  const timer: ReturnType<typeof setInterval> = setInterval(tick, intervalMs);
+  let unsub: () => void = () => {};
+  if (types.length > 0) {
+    unsub = subscribeFirehose({
+      types,
+      onEvent: () => void tick(),
+      onReconnect: () => void tick(),
+    });
+  }
+  return () => {
+    stopped = true;
+    clearInterval(timer);
+    unsub();
+  };
+}
