@@ -1,6 +1,7 @@
 <script lang="ts">
   import { onMount } from 'svelte';
   import Nav from '$lib/components/Nav.svelte';
+  import { subscribeFirehose } from '$lib/live';
 
   type Experiment = {
     experiment_id: string;
@@ -20,6 +21,7 @@
   let experiments = $state<Experiment[]>([]);
   let loading = $state(true);
   let error = $state<string | null>(null);
+  let live = $state(false);
 
   let approvalForm = $state<{
     experimentId: string;
@@ -30,8 +32,9 @@
     max_payload_bytes: string;
   } | null>(null);
 
-  async function loadExperiments() {
-    loading = true;
+  async function loadExperiments(silent = false) {
+    // silent = a live re-snapshot (firehose nudge); don't flash the loading state.
+    if (!silent) loading = true;
     error = null;
     try {
       const r = await fetch('/api/v0/proxy/experiments');
@@ -41,7 +44,7 @@
     } catch (e) {
       error = (e as Error).message;
     } finally {
-      loading = false;
+      if (!silent) loading = false;
     }
   }
 
@@ -109,7 +112,19 @@
     archived: 'archived-badge',
   };
 
-  onMount(loadExperiments);
+  onMount(() => {
+    loadExperiments();
+    // Snapshot-then-tail (M6): a newly-submitted experiment appears in the approval
+    // queue, and status changes reflect, without a manual refresh. Re-snapshot on a
+    // relevant event + on reconnect (the bus is lossy; the snapshot is the truth).
+    return subscribeFirehose({
+      types: ['experiment.submitted', 'experiment.status'],
+      onEvent: () => loadExperiments(true),
+      onReconnect: () => loadExperiments(true),
+      onOpen: () => (live = true),
+      onError: () => (live = false),
+    });
+  });
 </script>
 
 <svelte:head>
@@ -118,7 +133,9 @@
 
 <main>
   <header>
-    <h1><a href="/" class="brand-link"><span class="brand">auspex[ai]</span></a> experiments</h1>
+    <h1><a href="/" class="brand-link"><span class="brand">auspex[ai]</span></a> experiments
+      {#if live}<span class="live-dot" title="live — the approval queue updates without a refresh">● live</span>{/if}
+    </h1>
   </header>
   <Nav />
 
@@ -216,6 +233,7 @@
   header { border-bottom: 1px solid #2a2e3a; padding-bottom: 0.75em; margin-bottom: 1.5em; }
   h1 { margin: 0; font-size: 1.5em; font-weight: 600; color: #fff; }
   .brand { color: #a78bfa; }
+  .live-dot { font-size: 0.55em; font-weight: 500; color: #86efac; vertical-align: middle; margin-left: 0.5em; }
   .brand-link { text-decoration: none; color: inherit; }
   table { width: 100%; border-collapse: collapse; font-size: 0.9em; }
   th { text-align: left; padding: 0.5em; border-bottom: 2px solid #2a2e3a; color: #9ca3af; font-weight: 500; }
