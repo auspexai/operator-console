@@ -87,7 +87,7 @@ def create_app(config: OperatorConsoleConfig | None = None) -> FastAPI:
             "/_app", StaticFiles(directory=str(config.static_dir / "_app")), name="static-assets"
         )
 
-        @app.get("/{full_path:path}")
+        @app.get("/{full_path:path}", response_model=None)
         async def spa_fallback(full_path: str) -> FileResponse:
             # Serve the actual file if it exists (robots.txt, etc.),
             # otherwise fall back to index.html for SvelteKit client routing.
@@ -97,7 +97,7 @@ def create_app(config: OperatorConsoleConfig | None = None) -> FastAPI:
             return FileResponse(index_html)
     else:
 
-        @app.get("/")
+        @app.get("/", response_model=None)
         async def placeholder() -> FileResponse | JSONResponse:
             return JSONResponse(
                 {
