@@ -183,7 +183,7 @@
       <tbody>
         {#each workers as w}
           <tr class:quarantined={!!w.quarantined_at} class:retired={!!w.retired_at} class:paused={!!w.paused_at}>
-            <td class="mono">{w.worker_id}</td>
+            <td class="mono"><a href="/workers/{w.worker_id}" class="id-link">{w.worker_id}</a></td>
             <td><span class="badge tier-{w.trust_tier}">{tierNames[w.trust_tier] ?? `T${w.trust_tier}`}</span></td>
             <td>
               {#if execMode(w) === 'provisioned'}
