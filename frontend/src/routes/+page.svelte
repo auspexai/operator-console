@@ -768,7 +768,7 @@
                   <td><span class="badge errorbadge">blocked</span> <span class="muted">{e.block_reason ?? ''}</span></td>
                   <td class="mono">{models(e.required_capabilities)}</td>
                   <td>{e.capable_worker_count} / {e.eligible_worker_count}</td>
-                  <td><a href="/scheduler" class="muted">triage →</a></td>
+                  <td><a href="/workers" class="muted">workers →</a></td>
                 </tr>
               {/each}
               {#each stalledExps as e (e.experiment_id)}
@@ -777,7 +777,7 @@
                   <td><span class="badge warnbadge">{e.stalled_units} stalled unit{e.stalled_units === 1 ? '' : 's'}</span></td>
                   <td class="mono">{models(e.required_capabilities)}</td>
                   <td>{e.capable_worker_count} / {e.eligible_worker_count}</td>
-                  <td><a href="/scheduler" class="muted">triage →</a></td>
+                  <td><a href="/workers" class="muted">workers →</a></td>
                 </tr>
               {/each}
             </tbody>

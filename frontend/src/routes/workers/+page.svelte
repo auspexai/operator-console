@@ -19,7 +19,19 @@
     capabilities?: {
       thermal?: { state?: string; current_temp_c?: number };
       self_paused?: boolean;
+      worker_version?: string;
+      execute_tenant_code?: string;
+      models?: string[];
+      served_models?: string[];
     } | null;
+  };
+
+  // Eligibility/scheduling view per worker (folded in from the dissolved
+  // /scheduler, I2): how many queued experiments this worker can currently take.
+  type SchedWorker = {
+    worker_id: string;
+    model_count: number;
+    eligible_experiment_count: number;
   };
 
   const tierNames: Record<number, string> = {
@@ -30,6 +42,7 @@
   };
 
   let workers = $state<Worker[]>([]);
+  let sched = $state<Record<string, SchedWorker>>({});
   let loading = $state(true);
   let error = $state<string | null>(null);
   let live = $state(false);
@@ -37,10 +50,21 @@
   async function loadWorkers(silent = false): Promise<boolean> {
     if (!silent) loading = true;
     try {
-      const r = await fetch('/api/v0/proxy/workers');
+      // /workers is the canonical worker record; scheduler/state adds the
+      // eligibility columns (best-effort — a blip there must not blank the page).
+      const [r, schedR] = await Promise.all([
+        fetch('/api/v0/proxy/workers'),
+        fetch('/api/v0/proxy/scheduler/state'),
+      ]);
       if (!r.ok) throw new Error(`HTTP ${r.status}`);
       const body = await r.json();
       workers = body.workers || body || [];
+      if (schedR.ok) {
+        const st = await schedR.json();
+        const map: Record<string, SchedWorker> = {};
+        for (const sw of st.workers || []) map[sw.worker_id] = sw;
+        sched = map;
+      }
       error = null;
       return true;
     } catch (e) {
@@ -51,6 +75,10 @@
     } finally {
       if (!silent) loading = false;
     }
+  }
+
+  function execMode(w: Worker): string {
+    return w.capabilities?.execute_tenant_code ?? 'synthetic';
   }
 
   async function quarantine(workerId: string) {
@@ -114,7 +142,7 @@
     return autoRefresh({
       refresh: () => loadWorkers(true),
       setLive: (v) => (live = v),
-      types: ['worker.status'],
+      types: ['worker.status', 'network.status'],
     });
   });
 </script>
@@ -143,7 +171,10 @@
         <tr>
           <th>worker_id</th>
           <th>tier</th>
-          <th>account</th>
+          <th>executor</th>
+          <th>version</th>
+          <th>models</th>
+          <th>eligible for</th>
           <th>last heartbeat</th>
           <th>status</th>
           <th>actions</th>
@@ -154,7 +185,29 @@
           <tr class:quarantined={!!w.quarantined_at} class:retired={!!w.retired_at} class:paused={!!w.paused_at}>
             <td class="mono">{w.worker_id}</td>
             <td><span class="badge tier-{w.trust_tier}">{tierNames[w.trust_tier] ?? `T${w.trust_tier}`}</span></td>
-            <td class="mono">{#if w.account_id}<a href="/accounts/{w.account_id}" class="id-link">{w.account_id}</a>{:else}—{/if}</td>
+            <td>
+              {#if execMode(w) === 'provisioned'}
+                <span class="badge prov-b" title="runs provisioned tenant code — eligible for real (model-gated) experiments">provisioned</span>
+              {:else if execMode(w) === 'off'}
+                <span class="badge off-b" title="refuses all work">off</span>
+              {:else}
+                <span class="badge synth-b" title="synthetic echo only — excluded from real (model-gated) experiments">synthetic</span>
+              {/if}
+            </td>
+            <td class="mono">{w.capabilities?.worker_version ?? '—'}</td>
+            <td>
+              {(w.capabilities?.models ?? []).length}
+              {#if (w.capabilities?.served_models ?? []).length > 0}
+                <span class="badge serving-b" title="loaded + serve-ready in the inference backend: {(w.capabilities?.served_models ?? []).join(', ')}">{(w.capabilities?.served_models ?? []).length} serving</span>
+              {/if}
+            </td>
+            <td>
+              {#if sched[w.worker_id]}
+                {sched[w.worker_id].eligible_experiment_count} exp{#if sched[w.worker_id].eligible_experiment_count === 0 && !w.paused_at && !w.quarantined_at}<span class="badge idle"> idle</span>{/if}
+              {:else}
+                <span class="muted">—</span>
+              {/if}
+            </td>
             <td class="mono">{w.last_heartbeat_at ? new Date(w.last_heartbeat_at).toLocaleString() : '—'}</td>
             <td>
               {#if w.retired_at}
@@ -229,6 +282,11 @@
   .badge.tier-1 { background: #1e3a5f; color: #93c5fd; }
   .badge.tier-2 { background: #14532d; color: #86efac; }
   .badge.tier-3 { background: #4c1d95; color: #c4b5fd; }
+  .badge.prov-b { background: #14532d; color: #86efac; }
+  .badge.synth-b { background: #1f2937; color: #9ca3af; }
+  .badge.off-b { background: #7f1d1d; color: #fca5a5; }
+  .badge.serving-b { background: #1e3a5f; color: #93c5fd; margin-left: 0.3em; }
+  .badge.idle { background: #78350f; color: #fcd34d; margin-left: 0.3em; }
   .id-link { color: #a78bfa; text-decoration: none; }
   .id-link:hover { text-decoration: underline; }
   .muted { color: #6b7280; font-size: 0.95em; }

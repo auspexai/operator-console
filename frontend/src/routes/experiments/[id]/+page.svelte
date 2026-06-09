@@ -142,6 +142,53 @@
     }
   }
 
+  // Set integrity policy + trigger pre-stage (I2: moved here from the dissolved
+  // /scheduler — these are experiment-scoped actions, so the experiment record
+  // is their canonical home). Both mandatory-reason + audited.
+  let policyModal = $state<{ policy: string; reason: string } | null>(null);
+  let prestageModal = $state<{ reason: string } | null>(null);
+
+  async function reasonedAction(action: string, body: Record<string, unknown>, label: string) {
+    actionLoading = true;
+    try {
+      const r = await fetch(
+        `/api/v0/proxy/experiments/${encodeURIComponent(experimentId)}/actions/${action}`,
+        {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify(body),
+        },
+      );
+      if (!r.ok) {
+        const d = await r.json().catch(() => ({}));
+        throw new Error(JSON.stringify(d));
+      }
+      await loadExperiment();
+    } catch (e) {
+      alert(`${label} failed: ${(e as Error).message}`);
+    } finally {
+      actionLoading = false;
+    }
+  }
+
+  async function submitPolicy() {
+    if (!policyModal || !policyModal.reason.trim()) return;
+    const m = policyModal;
+    policyModal = null;
+    await reasonedAction(
+      'set-integrity-policy',
+      { integrity_policy: m.policy, reason: m.reason },
+      'set policy',
+    );
+  }
+
+  async function submitPrestage() {
+    if (!prestageModal || !prestageModal.reason.trim()) return;
+    const m = prestageModal;
+    prestageModal = null;
+    await reasonedAction('trigger-prestage', { reason: m.reason }, 'pre-stage');
+  }
+
   // Retention hold / release (O-M8). Mirrors the account suspend/unsuspend
   // pattern: mandatory reason on hold, confirm-gated release, silent refetch.
   let holdModal = $state<{ reason: string } | null>(null);
@@ -351,6 +398,10 @@
           <button onclick={() => experimentAction('resume')} disabled={actionLoading}>resume</button>
           <button class="danger" onclick={() => experimentAction('abort')} disabled={actionLoading}>abort</button>
         {/if}
+        {#if experiment.status === 'approved' || experiment.status === 'paused'}
+          <button onclick={() => (policyModal = { policy: experiment?.integrity_policy ?? 'standard', reason: '' })} disabled={actionLoading}>set integrity policy…</button>
+          <button onclick={() => (prestageModal = { reason: '' })} disabled={actionLoading}>trigger pre-stage…</button>
+        {/if}
         {#if !['submitted', 'approved', 'paused'].includes(experiment.status)}
           <span class="muted">No actions available for {experiment.status} experiments.</span>
         {/if}
@@ -396,6 +447,48 @@
       <div class="modal-actions">
         <button onclick={() => (approvalForm = null)}>cancel</button>
         <button class="primary" onclick={submitApproval}>approve with these settings</button>
+      </div>
+    </div>
+  {/if}
+
+  {#if policyModal}
+    <div class="modal-backdrop" onclick={() => (policyModal = null)}></div>
+    <div class="approval-modal">
+      <h2>Set integrity policy</h2>
+      <p class="mono">{experimentId}</p>
+      <p class="warning">Affects FUTURE units only — units already submitted keep their replication target.</p>
+      <label>
+        Policy
+        <select bind:value={policyModal.policy}>
+          <option value="standard">standard (replication 3)</option>
+          <option value="high">high (replication 5)</option>
+          <option value="trusted">trusted (replication 1; T2+ only)</option>
+        </select>
+      </label>
+      <label>
+        Reason (required)
+        <textarea bind:value={policyModal.reason} rows="3" placeholder="recorded in the audit log"></textarea>
+      </label>
+      <div class="modal-actions">
+        <button onclick={() => (policyModal = null)}>cancel</button>
+        <button class="primary" onclick={submitPolicy} disabled={actionLoading || !policyModal.reason.trim()}>set policy</button>
+      </div>
+    </div>
+  {/if}
+
+  {#if prestageModal}
+    <div class="modal-backdrop" onclick={() => (prestageModal = null)}></div>
+    <div class="approval-modal">
+      <h2>Trigger pre-stage</h2>
+      <p class="mono">{experimentId}</p>
+      <p class="muted">Eagerly pulls this experiment's required model(s) onto eligible auto-acquire workers now (bounded by the replication need), so its units aren't bottlenecked on first-assignment pulls.</p>
+      <label>
+        Reason (required)
+        <textarea bind:value={prestageModal.reason} rows="3" placeholder="recorded in the audit log"></textarea>
+      </label>
+      <div class="modal-actions">
+        <button onclick={() => (prestageModal = null)}>cancel</button>
+        <button class="primary" onclick={submitPrestage} disabled={actionLoading || !prestageModal.reason.trim()}>pre-stage</button>
       </div>
     </div>
   {/if}

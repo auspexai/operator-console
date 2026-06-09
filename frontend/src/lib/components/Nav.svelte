@@ -3,7 +3,8 @@
 
   // Triage-first IA (ui_triage_first_ia_redesign.md §4.1): NOW is the
   // attention queue; Run = the live operational records; Records = the
-  // browse/audit surfaces. /scheduler is transitional — it dissolves in I2.
+  // browse/audit surfaces. /scheduler dissolved in I2 (its sections moved to
+  // NOW + /workers + /models + the experiment record); only a redirect remains.
   const groups = [
     { label: null, links: [{ href: '/', label: 'Now' }] },
     {
@@ -11,7 +12,7 @@
       links: [
         { href: '/experiments', label: 'Experiments' },
         { href: '/workers', label: 'Workers' },
-        { href: '/scheduler', label: 'Scheduler' },
+        { href: '/models', label: 'Models' },
       ],
     },
     {
