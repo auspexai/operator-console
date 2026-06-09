@@ -820,6 +820,11 @@
 
       <section>
         <h2 class="section">Fleet</h2>
+        <!-- A deploy-state GLANCE only — the per-worker detail (version /
+             executor / models / serving) lives on /workers, its canonical home
+             (one-home rule). What's home-only: the infra-health summary
+             (coordinator reachability + console version aren't on /workers) and
+             the cross-worker version-consistency exception. -->
         <p class="fleetline">
           <strong>{onlineCount}</strong>/{activeFleet.length} worker{activeFleet.length === 1 ? '' : 's'} online
           {#if health}
@@ -833,25 +838,11 @@
           {/if}
           {#if versionMismatch}
             <span class="badge warnbadge">mixed worker versions: {fleetVersions.join(', ')}</span>
+          {:else if fleetVersions.length === 1}
+            · workers <span class="mono">v{fleetVersions[0]}</span>
           {/if}
+          · <a href="/workers" class="netlink">view fleet →</a>
         </p>
-        <table>
-          <thead>
-            <tr><th>worker</th><th>tier</th><th>version</th><th>executor</th><th>models</th><th>serving</th></tr>
-          </thead>
-          <tbody>
-            {#each activeFleet as w (w.worker_id)}
-              <tr>
-                <td class="mono"><a href="/workers">{w.worker_id}</a></td>
-                <td>T{w.trust_tier}</td>
-                <td class="mono">{w.capabilities?.worker_version ?? '—'}</td>
-                <td>{w.capabilities?.execute_tenant_code ?? '—'}</td>
-                <td>{(w.capabilities?.models ?? []).length}</td>
-                <td class="mono">{(w.capabilities?.served_models ?? []).join(', ') || '—'}</td>
-              </tr>
-            {/each}
-          </tbody>
-        </table>
       </section>
 
       <section>
