@@ -820,11 +820,12 @@
 
       <section>
         <h2 class="section">Fleet</h2>
-        <!-- A deploy-state GLANCE only — the per-worker detail (version /
-             executor / models / serving) lives on /workers, its canonical home
-             (one-home rule). What's home-only: the infra-health summary
-             (coordinator reachability + console version aren't on /workers) and
-             the cross-worker version-consistency exception. -->
+        <!-- Infra health + infra EXCEPTIONS only. Per-worker detail (incl.
+             versions) lives on /workers (one-home rule) and is reachable from
+             the nav, so no per-worker table and no redundant link here. The
+             consistent worker version is browse data, not triage — only the
+             cross-worker MISMATCH earns a home slot (an actual "needs
+             attention" signal). -->
         <p class="fleetline">
           <strong>{onlineCount}</strong>/{activeFleet.length} worker{activeFleet.length === 1 ? '' : 's'} online
           {#if health}
@@ -834,14 +835,10 @@
             {:else if health.coord.reachable === false}
               <span class="badge errorbadge">unreachable</span>
             {/if}
-            · console <span class="mono">v{health.version}</span>
           {/if}
           {#if versionMismatch}
-            <span class="badge warnbadge">mixed worker versions: {fleetVersions.join(', ')}</span>
-          {:else if fleetVersions.length === 1}
-            · workers <span class="mono">v{fleetVersions[0]}</span>
+            · <span class="badge warnbadge">mixed worker versions: {fleetVersions.join(', ')}</span>
           {/if}
-          · <a href="/workers" class="netlink">view fleet →</a>
         </p>
       </section>
 
@@ -858,7 +855,8 @@
 
     <footer>
       <p class="muted">
-        IA: <code>Documentation/AuspexAI/v0.1.0/ui_triage_first_ia_redesign.md</code> (local).
+        {#if health}console <span class="mono">v{health.version}</span> · {/if}IA:
+        <code>Documentation/AuspexAI/v0.1.0/ui_triage_first_ia_redesign.md</code> (local).
         Threat model: <code>operator_console_auth_threat_model.md</code> (local).
       </p>
     </footer>
