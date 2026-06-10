@@ -308,6 +308,60 @@ def build_router(config) -> APIRouter:
             body,
         )
 
+    # ---- software-requests pipeline + release registry (§9 #46) ----
+
+    @router.get("/software-requests")
+    async def list_software_requests(request: Request) -> Any:
+        status = request.query_params.get("status")
+        path = "/api/v0/software-requests"
+        if status:
+            path += f"?status={quote(status, safe='')}"
+        return await _proxy_get(path, _headers(request))
+
+    @router.get("/software-requests/{request_id}")
+    async def get_software_request(request: Request, request_id: str) -> Any:
+        return await _proxy_get(f"/api/v0/software-requests/{request_id}", _headers(request))
+
+    @router.post("/software-requests/{request_id}/actions/assess")
+    async def assess_software_request(request: Request, request_id: str) -> Any:
+        body = await request.json()
+        return await _proxy_post(
+            f"/api/v0/software-requests/{request_id}/actions/assess",
+            _headers(request),
+            body,
+        )
+
+    @router.post("/software-requests/{request_id}/actions/approve")
+    async def approve_software_request(request: Request, request_id: str) -> Any:
+        body = await request.json()
+        return await _proxy_post(
+            f"/api/v0/software-requests/{request_id}/actions/approve",
+            _headers(request),
+            body,
+        )
+
+    @router.post("/software-requests/{request_id}/actions/decline")
+    async def decline_software_request(request: Request, request_id: str) -> Any:
+        body = await request.json()
+        return await _proxy_post(
+            f"/api/v0/software-requests/{request_id}/actions/decline",
+            _headers(request),
+            body,
+        )
+
+    @router.get("/releases")
+    async def list_releases(request: Request) -> Any:
+        channel = request.query_params.get("channel")
+        path = "/api/v0/releases"
+        if channel:
+            path += f"?channel={quote(channel, safe='')}"
+        return await _proxy_get(path, _headers(request))
+
+    @router.post("/releases")
+    async def record_release(request: Request) -> Any:
+        body = await request.json()
+        return await _proxy_post("/api/v0/releases", _headers(request), body)
+
     # ---- scheduler view (M4) ----
 
     @router.get("/scheduler/state")

@@ -109,8 +109,19 @@
 
   const STALE_MS = 180_000; // mirrors worker_status.STALE_HEARTBEAT_MINUTES (3m)
 
+  // §9 #46: software-requirements queue (lite view — full review on /requests)
+  type SoftwareRequestLite = {
+    request_id: string;
+    tenant_id: string;
+    title: string;
+    status: string; // pending | assessed | approved | declined | released
+    assessment_draft: boolean;
+    assessment: unknown | null;
+  };
+
   let experiments = $state<Experiment[]>([]);
   let requests = $state<ModelRequest[]>([]);
+  let softwareRequests = $state<SoftwareRequestLite[]>([]);
   let schedExps = $state<SchedExp[]>([]);
   let fleet = $state<FleetWorker[]>([]);
   let suspendedAccounts = $state<Account[]>([]);
@@ -123,9 +134,10 @@
   async function loadTriage(silent = false): Promise<boolean> {
     if (!silent) triageLoading = true;
     try {
-      const [expR, reqR, schedR, wkrR, acctR] = await Promise.all([
+      const [expR, reqR, swrR, schedR, wkrR, acctR] = await Promise.all([
         fetch('/api/v0/proxy/experiments'),
         fetch('/api/v0/proxy/model-requests'),
+        fetch('/api/v0/proxy/software-requests'),
         fetch('/api/v0/proxy/scheduler/state'),
         fetch('/api/v0/proxy/workers'),
         fetch('/api/v0/proxy/accounts'),
@@ -134,6 +146,7 @@
       const expBody = await expR.json();
       experiments = expBody.experiments || expBody || [];
       if (reqR.ok) requests = (await reqR.json()).requests || [];
+      if (swrR.ok) softwareRequests = (await swrR.json()).requests || [];
       if (schedR.ok) schedExps = (await schedR.json()).experiments || [];
       if (wkrR.ok) {
         const w = await wkrR.json();
@@ -159,6 +172,9 @@
   let pendingApprovals = $derived(experiments.filter((e) => e.status === 'submitted'));
   let pendingRequests = $derived(
     requests.filter((r) => r.status === 'pending' || r.status === 'available'),
+  );
+  let pendingSoftware = $derived(
+    softwareRequests.filter((r) => r.status === 'pending' || r.status === 'assessed'),
   );
   let blockedExps = $derived(schedExps.filter((e) => e.blocked));
   let stalledExps = $derived(schedExps.filter((e) => !e.blocked && (e.stalled_units ?? 0) > 0));
@@ -213,6 +229,7 @@
   let needsCount = $derived(
     pendingApprovals.length +
       pendingRequests.length +
+      pendingSoftware.length +
       blockedExps.length +
       stalledExps.length +
       holds.length +
@@ -534,7 +551,16 @@
         triageStop = autoRefresh({
           refresh: () => loadTriage(true),
           setLive: (v) => (triageLive = v),
-          types: ['experiment.submitted', 'experiment.status', 'worker.status', 'network.status'],
+          types: [
+            'experiment.submitted',
+            'experiment.status',
+            'worker.status',
+            'network.status',
+            'requirement.submitted',
+            'requirement.assessed',
+            'requirement.resolved',
+            'release.published',
+          ],
         });
       }
     } else {
@@ -709,7 +735,7 @@
         {/if}
       </div>
 
-      {#if pendingApprovals.length > 0 || pendingRequests.length > 0}
+      {#if pendingApprovals.length > 0 || pendingRequests.length > 0 || pendingSoftware.length > 0}
         <section>
           <h2 class="section">Review</h2>
           {#if pendingApprovals.length > 0}
@@ -746,6 +772,27 @@
                       <button onclick={() => (resolveModal = { requestId: req.request_id, modelId: req.model_id, action: 'fulfil', reason: '' })} disabled={actionLoading}>fulfil…</button>
                       <button onclick={() => (resolveModal = { requestId: req.request_id, modelId: req.model_id, action: 'decline', reason: '' })} disabled={actionLoading}>decline…</button>
                     </td>
+                  </tr>
+                {/each}
+              </tbody>
+            </table>
+          {/if}
+          {#if pendingSoftware.length > 0}
+            <table>
+              <thead>
+                <tr><th>software request</th><th>tenant</th><th>status</th><th></th></tr>
+              </thead>
+              <tbody>
+                {#each pendingSoftware as req (req.request_id)}
+                  <tr>
+                    <td>{req.title}</td>
+                    <td class="mono">{req.tenant_id}</td>
+                    <td>
+                      <span class="badge">{req.status}</span>
+                      {#if req.assessment_draft}<span class="badge warnbadge">auto-draft</span>
+                      {:else if !req.assessment}<span class="muted">no assessment</span>{/if}
+                    </td>
+                    <td><a href="/requests">review →</a></td>
                   </tr>
                 {/each}
               </tbody>
