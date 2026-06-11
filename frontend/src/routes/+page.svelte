@@ -122,7 +122,6 @@
   let experiments = $state<Experiment[]>([]);
   let requests = $state<ModelRequest[]>([]);
   let softwareRequests = $state<SoftwareRequestLite[]>([]);
-  let releaseDrafts = $state<{ version: string; channel: string; headline: string }[]>([]);
   let schedExps = $state<SchedExp[]>([]);
   let fleet = $state<FleetWorker[]>([]);
   let suspendedAccounts = $state<Account[]>([]);
@@ -135,24 +134,19 @@
   async function loadTriage(silent = false): Promise<boolean> {
     if (!silent) triageLoading = true;
     try {
-      const [expR, reqR, swrR, schedR, wkrR, acctR, relR] = await Promise.all([
+      const [expR, reqR, swrR, schedR, wkrR, acctR] = await Promise.all([
         fetch('/api/v0/proxy/experiments'),
         fetch('/api/v0/proxy/model-requests'),
         fetch('/api/v0/proxy/software-requests'),
         fetch('/api/v0/proxy/scheduler/state'),
         fetch('/api/v0/proxy/workers'),
         fetch('/api/v0/proxy/accounts'),
-        fetch('/api/v0/proxy/releases?include_drafts=1'),
       ]);
       if (!expR.ok) throw new Error(`experiments HTTP ${expR.status}`);
       const expBody = await expR.json();
       experiments = expBody.experiments || expBody || [];
       if (reqR.ok) requests = (await reqR.json()).requests || [];
       if (swrR.ok) softwareRequests = (await swrR.json()).requests || [];
-      if (relR.ok)
-        releaseDrafts = ((await relR.json()).releases || []).filter(
-          (r: { draft: boolean }) => r.draft,
-        );
       if (schedR.ok) schedExps = (await schedR.json()).experiments || [];
       if (wkrR.ok) {
         const w = await wkrR.json();
@@ -565,7 +559,6 @@
             'requirement.submitted',
             'requirement.assessed',
             'requirement.resolved',
-            'release.draft_created',
             'release.published',
           ],
         });
@@ -742,17 +735,9 @@
         {/if}
       </div>
 
-      {#if pendingApprovals.length > 0 || pendingRequests.length > 0 || pendingSoftware.length > 0 || releaseDrafts.length > 0}
+      {#if pendingApprovals.length > 0 || pendingRequests.length > 0 || pendingSoftware.length > 0}
         <section>
           <h2 class="section">Review</h2>
-          {#if releaseDrafts.length > 0}
-            <p>
-              <span class="mono">{releaseDrafts.length}</span> GitHub release{releaseDrafts.length === 1 ? '' : 's'}
-              awaiting announcement
-              ({releaseDrafts.map((r) => `v${r.version}`).join(', ')})
-              — <a href="/requests">review &amp; announce</a>
-            </p>
-          {/if}
           {#if pendingApprovals.length > 0}
             <table>
               <thead>

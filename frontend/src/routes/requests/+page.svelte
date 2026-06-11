@@ -35,20 +35,7 @@
     release_version: string | null;
   };
 
-  type Release = {
-    version: string;
-    channel: string;
-    headline: string;
-    notes: string | null;
-    release_url: string | null;
-    published_at: string;
-    announced_by: string;
-    draft: boolean;
-    source: string | null;
-  };
-
   let requests = $state<SoftwareRequest[]>([]);
-  let releases = $state<Release[]>([]);
   let loading = $state(true);
   let error = $state<string | null>(null);
   let actionLoading = $state(false);
@@ -121,27 +108,12 @@
     }
   }
 
-  let releaseModal = $state<{
-    version: string;
-    headline: string;
-    notes: string;
-    releaseUrl: string;
-    fulfils: Record<string, boolean>;
-    // Set when reviewing a webhook-created draft: submit publishes via the
-    // announce action instead of recording a new release.
-    announceVersion: string | null;
-  } | null>(null);
-
   async function loadAll(silent = false): Promise<boolean> {
     if (!silent) loading = true;
     try {
-      const [reqR, relR] = await Promise.all([
-        fetch('/api/v0/proxy/software-requests'),
-        fetch('/api/v0/proxy/releases?include_drafts=1'),
-      ]);
+      const reqR = await fetch('/api/v0/proxy/software-requests');
       if (!reqR.ok) throw new Error(`software-requests HTTP ${reqR.status}`);
       requests = (await reqR.json()).requests || [];
-      if (relR.ok) releases = (await relR.json()).releases || [];
       error = null;
       return true;
     } catch (e) {
@@ -235,68 +207,6 @@
     }
   }
 
-  function openRelease() {
-    const fulfils: Record<string, boolean> = {};
-    for (const r of requests) if (r.status === 'approved') fulfils[r.request_id] = false;
-    releaseModal = { version: '', headline: '', notes: '', releaseUrl: '', fulfils, announceVersion: null };
-  }
-
-  function openAnnounce(rel: Release) {
-    const fulfils: Record<string, boolean> = {};
-    for (const r of requests) if (r.status === 'approved') fulfils[r.request_id] = false;
-    releaseModal = {
-      version: rel.version,
-      headline: rel.headline,
-      notes: rel.notes ?? '',
-      releaseUrl: rel.release_url ?? '',
-      fulfils,
-      announceVersion: rel.version,
-    };
-  }
-
-  async function submitRelease() {
-    if (!releaseModal) return;
-    const m = releaseModal;
-    releaseModal = null;
-    actionLoading = true;
-    try {
-      const fulfils_request_ids = Object.entries(m.fulfils)
-        .filter(([, v]) => v)
-        .map(([k]) => k);
-      const url = m.announceVersion
-        ? `/api/v0/proxy/releases/${encodeURIComponent(m.announceVersion)}/actions/announce`
-        : '/api/v0/proxy/releases';
-      const payload = m.announceVersion
-        ? {
-            headline: m.headline,
-            notes: m.notes.trim() ? m.notes : null,
-            release_url: m.releaseUrl.trim() ? m.releaseUrl : null,
-            fulfils_request_ids,
-          }
-        : {
-            version: m.version.trim().replace(/^v/, ''),
-            headline: m.headline,
-            notes: m.notes.trim() ? m.notes : null,
-            release_url: m.releaseUrl.trim() ? m.releaseUrl : null,
-            fulfils_request_ids,
-          };
-      const r = await fetch(url, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify(payload),
-      });
-      if (!r.ok) {
-        const d = await r.json().catch(() => ({}));
-        throw new Error(JSON.stringify(d));
-      }
-      await loadAll(true);
-    } catch (e) {
-      alert(`record release failed: ${(e as Error).message}`);
-    } finally {
-      actionLoading = false;
-    }
-  }
-
   const reqOrder: Record<string, number> = {
     pending: 0,
     assessed: 1,
@@ -311,7 +221,6 @@
         b.created_at.localeCompare(a.created_at),
     ),
   );
-  let approvedCount = $derived(requests.filter((r) => r.status === 'approved').length);
 
   onMount(() => {
     loadAll().then((ok) => (live = ok));
@@ -323,7 +232,6 @@
         'requirement.submitted',
         'requirement.assessed',
         'requirement.resolved',
-        'release.draft_created',
         'release.published',
       ],
     });
@@ -354,6 +262,9 @@
       Code-plane demand: capabilities the worker baseline doesn't provide. Review the
       dependencies/security/alternatives assessment, then <em>approve</em> or <em>decline</em>
       (mandatory reason). Approving without a ratified assessment records a gate override.
+      Releases announce themselves: publishing a GitHub release notifies the fleet directly
+      (<code>Fulfils: swr-…</code> in the release description closes approved requests) — see the
+      <a href="https://github.com/auspexai/worker/releases" target="_blank" rel="noreferrer">releases on GitHub ↗</a>.
     </p>
     {#if requests.length === 0}
       <p class="muted">No software requests yet.</p>
@@ -437,53 +348,6 @@
       {/if}
     {/if}
 
-    <!-- Release registry -->
-    <h2 class="section">Release registry</h2>
-    <p class="muted">
-      The maintainer-side record of what has been announced to the fleet — recording a release
-      relays it via worker heartbeats and fulfils the approved requests it ships. The volunteer's
-      update prompt is the banner on their own worker dashboard, not this page; volunteers elect
-      to upgrade — never automatic.
-      <button class="primary inline" onclick={openRelease} disabled={actionLoading}>record release…</button>
-      {#if approvedCount > 0}<span class="warn-text">{approvedCount} approved request{approvedCount === 1 ? '' : 's'} awaiting a release</span>{/if}
-    </p>
-    {#if releases.filter((r) => r.draft).length > 0}
-      <div class="drafts-block">
-        <p class="warn-text">
-          {releases.filter((r) => r.draft).length} GitHub release{releases.filter((r) => r.draft).length === 1 ? '' : 's'}
-          awaiting announcement — the fleet does NOT see these until you review the
-          volunteer-facing wording and announce.
-        </p>
-        {#each releases.filter((r) => r.draft) as rel (rel.channel + rel.version)}
-          <p class="draft-row">
-            <span class="badge draft">DRAFT</span>
-            <span class="mono">v{rel.version}</span>
-            <span class="muted">({rel.source ?? 'unknown source'})</span>
-            — {rel.headline}
-            <button class="primary inline" onclick={() => openAnnounce(rel)} disabled={actionLoading}>review &amp; announce…</button>
-          </p>
-        {/each}
-      </div>
-    {/if}
-    {#if releases.filter((r) => !r.draft).length === 0}
-      <p class="muted">No releases recorded yet.</p>
-    {:else}
-      <table>
-        <thead><tr><th>version</th><th>channel</th><th>headline</th><th>announced</th><th>by</th><th></th></tr></thead>
-        <tbody>
-          {#each releases.filter((r) => !r.draft) as rel (rel.channel + rel.version)}
-            <tr>
-              <td class="mono">v{rel.version}</td>
-              <td class="mono">{rel.channel}</td>
-              <td>{rel.headline}</td>
-              <td class="mono">{new Date(rel.published_at).toLocaleString()}</td>
-              <td class="mono">{rel.announced_by}</td>
-              <td>{#if rel.release_url}<a href={rel.release_url} target="_blank" rel="noreferrer">release ↗</a>{/if}</td>
-            </tr>
-          {/each}
-        </tbody>
-      </table>
-    {/if}
   {/if}
 
   {#if assessModal}
@@ -539,49 +403,6 @@
     </div>
   {/if}
 
-  {#if releaseModal}
-    <div class="modal-backdrop" onclick={() => (releaseModal = null)}></div>
-    <div class="modal wide">
-      <h2>{releaseModal.announceVersion ? `Announce v${releaseModal.announceVersion}` : 'Record release'}</h2>
-      <p class="muted">
-        {#if releaseModal.announceVersion}
-          Pre-filled from the GitHub release by the webhook. Edit the wording for volunteers —
-          announcing relays it to the fleet on the next heartbeat.
-        {:else}
-          Announces to the fleet on the next heartbeat. Cut + sign the GitHub release first — this
-          records it, it doesn't build it.
-        {/if}
-      </p>
-      {#if !releaseModal.announceVersion}
-        <label>Version (bare, e.g. 0.2.0)
-          <input bind:value={releaseModal.version} placeholder="0.2.0" />
-        </label>
-      {/if}
-      <label>Headline — why a volunteer should want this (required)
-        <textarea bind:value={releaseModal.headline} rows="2" placeholder="shown on the worker dashboard"></textarea>
-      </label>
-      <label>Notes (optional)
-        <textarea bind:value={releaseModal.notes} rows="3"></textarea>
-      </label>
-      <label>Release URL (optional)
-        <input bind:value={releaseModal.releaseUrl} placeholder="https://github.com/auspexai/worker/releases/tag/v0.2.0" />
-      </label>
-      {#if Object.keys(releaseModal.fulfils).length > 0}
-        <p class="muted">Fulfils approved requests:</p>
-        {#each Object.keys(releaseModal.fulfils) as rid (rid)}
-          <label class="check">
-            <input type="checkbox" bind:checked={releaseModal.fulfils[rid]} />
-            <span class="mono">{rid}</span>
-            <span class="muted">{requests.find((r) => r.request_id === rid)?.title ?? ''}</span>
-          </label>
-        {/each}
-      {/if}
-      <div class="modal-actions">
-        <button onclick={() => (releaseModal = null)}>cancel</button>
-        <button class="primary" onclick={submitRelease} disabled={actionLoading || (!releaseModal.announceVersion && !releaseModal.version.trim()) || !releaseModal.headline.trim()}>{releaseModal.announceVersion ? 'announce to fleet' : 'record + announce'}</button>
-      </div>
-    </div>
-  {/if}
 </main>
 
 <style>
@@ -602,8 +423,6 @@
   .badge.status-approved { background: #14532d; color: #86efac; }
   .badge.status-released { background: #14532d; color: #86efac; }
   .badge.status-declined { background: #7f1d1d; color: #fca5a5; }
-  .drafts-block { border: 1px solid #78350f; border-radius: 6px; padding: 0.5em 0.9em; margin: 0.5em 0 0.9em; }
-  .draft-row { margin: 0.35em 0; }
   .badge.verdict-NEW { background: #14532d; color: #86efac; border: 1px solid #22c55e; }
   .badge.verdict-ALREADY_PROVIDED { background: #1e3a5f; color: #93c5fd; }
   .badge.verdict-DUPLICATE { background: #3f3f46; color: #d4d4d8; }
