@@ -81,6 +81,15 @@
   let capDraft = $state('');
   let capSaving = $state(false);
 
+  // The assessment agent folds its baseline-classification verdict into the
+  // front of the summary as "[VERDICT] evidence — ...". Surface it as a chip
+  // so the maintainer sees new-vs-covered at a glance without expanding.
+  const VERDICTS = ['NEW', 'DUPLICATE', 'ALREADY_PROVIDED', 'PARTIALLY_COVERED'] as const;
+  function verdictOf(req: SoftwareRequest): string | null {
+    const m = req.assessment?.summary?.match(/^\[([A-Z_]+)\]/);
+    return m && (VERDICTS as readonly string[]).includes(m[1]) ? m[1] : null;
+  }
+
   async function loadAgent() {
     try {
       const r = await fetch('/api/v0/agent/assessment');
@@ -340,6 +349,9 @@
               </td>
               <td class="assessment-cell">
                 {#if req.assessment}
+                  {#if verdictOf(req)}
+                    <span class="badge verdict-{verdictOf(req)}">{verdictOf(req)?.replace(/_/g, ' ')}</span>
+                  {/if}
                   {#if req.assessment_draft}
                     <span class="badge draft">AUTO-DRAFT — unreviewed</span>
                   {:else}
@@ -395,10 +407,12 @@
     {/if}
 
     <!-- Release registry -->
-    <h2 class="section">Releases</h2>
+    <h2 class="section">Release registry</h2>
     <p class="muted">
-      Recording a release announces it to the fleet (worker heartbeat) and fulfils the approved
-      requests it ships. Volunteers elect to upgrade — never automatic.
+      The maintainer-side record of what has been announced to the fleet — recording a release
+      relays it via worker heartbeats and fulfils the approved requests it ships. The volunteer's
+      update prompt is the banner on their own worker dashboard, not this page; volunteers elect
+      to upgrade — never automatic.
       <button class="primary inline" onclick={openRelease} disabled={actionLoading}>record release…</button>
       {#if approvedCount > 0}<span class="warn-text">{approvedCount} approved request{approvedCount === 1 ? '' : 's'} awaiting a release</span>{/if}
     </p>
@@ -532,6 +546,10 @@
   .badge.status-approved { background: #14532d; color: #86efac; }
   .badge.status-released { background: #14532d; color: #86efac; }
   .badge.status-declined { background: #7f1d1d; color: #fca5a5; }
+  .badge.verdict-NEW { background: #14532d; color: #86efac; border: 1px solid #22c55e; }
+  .badge.verdict-ALREADY_PROVIDED { background: #1e3a5f; color: #93c5fd; }
+  .badge.verdict-DUPLICATE { background: #3f3f46; color: #d4d4d8; }
+  .badge.verdict-PARTIALLY_COVERED { background: #78350f; color: #fcd34d; }
   .badge.draft { background: #78350f; color: #fcd34d; }
   .badge.ratified { background: #14532d; color: #86efac; }
   .assessment-cell { max-width: 280px; }
