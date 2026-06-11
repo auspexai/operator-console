@@ -352,15 +352,29 @@ def build_router(config) -> APIRouter:
     @router.get("/releases")
     async def list_releases(request: Request) -> Any:
         channel = request.query_params.get("channel")
-        path = "/api/v0/releases"
+        params = []
         if channel:
-            path += f"?channel={quote(channel, safe='')}"
+            params.append(f"channel={quote(channel, safe='')}")
+        # The console is the maintainer surface: webhook-created DRAFTS are
+        # part of its review queue.
+        if request.query_params.get("include_drafts"):
+            params.append("include_drafts=true")
+        path = "/api/v0/releases" + (f"?{'&'.join(params)}" if params else "")
         return await _proxy_get(path, _headers(request))
 
     @router.post("/releases")
     async def record_release(request: Request) -> Any:
         body = await request.json()
         return await _proxy_post("/api/v0/releases", _headers(request), body)
+
+    @router.post("/releases/{version}/actions/announce")
+    async def announce_release(request: Request, version: str) -> Any:
+        body = await request.json()
+        return await _proxy_post(
+            f"/api/v0/releases/{quote(version, safe='')}/actions/announce",
+            _headers(request),
+            body,
+        )
 
     # ---- scheduler view (M4) ----
 
