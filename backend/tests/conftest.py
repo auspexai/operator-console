@@ -49,4 +49,9 @@ def authed_client(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> TestClient
         "auspexai_operator_console.proxy.require_session",
         lambda request: "test-maintainer",
     )
+    # agent_admin imports require_session separately — patch its binding too.
+    monkeypatch.setattr(
+        "auspexai_operator_console.agent_admin.require_session",
+        lambda request: "test-maintainer",
+    )
     return TestClient(create_app(_config(tmp_path)))

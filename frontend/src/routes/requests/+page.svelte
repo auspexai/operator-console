@@ -70,6 +70,46 @@
     reason: string;
   } | null>(null);
 
+  type AgentStatus = {
+    installed: boolean;
+    model?: string;
+    api_key_present?: boolean;
+    max_drafts_per_tick?: number;
+    timer_active?: boolean;
+  };
+  let agent = $state<AgentStatus | null>(null);
+  let capDraft = $state('');
+  let capSaving = $state(false);
+
+  async function loadAgent() {
+    try {
+      const r = await fetch('/api/v0/agent/assessment');
+      if (r.ok) {
+        agent = await r.json();
+        if (agent?.max_drafts_per_tick != null) capDraft = String(agent.max_drafts_per_tick);
+      }
+    } catch {
+      /* agent card is best-effort */
+    }
+  }
+
+  async function saveCap() {
+    capSaving = true;
+    try {
+      const r = await fetch('/api/v0/agent/assessment/cap', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ max_drafts_per_tick: Number(capDraft) }),
+      });
+      if (!r.ok) throw new Error(`HTTP ${r.status}`);
+      await loadAgent();
+    } catch (e) {
+      alert(`cap update failed: ${(e as Error).message}`);
+    } finally {
+      capSaving = false;
+    }
+  }
+
   let releaseModal = $state<{
     version: string;
     headline: string;
@@ -236,6 +276,7 @@
 
   onMount(() => {
     loadAll().then((ok) => (live = ok));
+    loadAgent();
     return autoRefresh({
       refresh: () => loadAll(true),
       setLive: (v) => (live = v),
@@ -332,6 +373,25 @@
           {/each}
         </tbody>
       </table>
+    {/if}
+
+    <!-- Assessment agent (rage-local ops tooling; session-gated admin) -->
+    {#if agent}
+      <h2 class="section">Assessment agent</h2>
+      {#if !agent.installed}
+        <p class="muted">Not installed on this host.</p>
+      {:else}
+        <p class="muted">
+          {#if agent.timer_active}<span class="badge ratified">timer active</span>{:else}<span class="badge status-declined">timer inactive</span>{/if}
+          <span class="badge">{agent.model}</span>
+          {#if agent.api_key_present}<span class="badge ratified">API key set</span>{:else}<span class="badge draft">no API key — drafts paused (logs-and-skips)</span>{/if}
+          <label class="cap-label">spend cap (drafts/tick):
+            <input class="cap-input" type="number" min="0" max="100" bind:value={capDraft} />
+          </label>
+          <button onclick={saveCap} disabled={capSaving || capDraft === String(agent.max_drafts_per_tick)}>save</button>
+          <span class="muted">≈ ${(Number(capDraft || 0) * 0.15).toFixed(2)} worst-case per tick @ ~$0.15/draft</span>
+        </p>
+      {/if}
     {/if}
 
     <!-- Release registry -->
@@ -490,6 +550,8 @@
   button.primary { background: #a78bfa; color: #0a0e1a; border-color: #a78bfa; font-weight: 600; }
   button.danger { background: #7f1d1d; border-color: #7f1d1d; color: #fca5a5; }
   button.inline { margin-left: 0.75em; }
+  .cap-label { margin-left: 0.75em; color: #9ca3af; }
+  .cap-input { width: 4.5em; background: #0a0e1a; border: 1px solid #2a2e3a; border-radius: 4px; color: #d4d4dc; padding: 0.2em 0.4em; font: inherit; margin-left: 0.3em; }
   a { color: #a78bfa; }
   .modal-backdrop { position: fixed; inset: 0; background: rgba(0, 0, 0, 0.6); z-index: 10; }
   .modal { position: fixed; top: 50%; left: 50%; transform: translate(-50%, -50%); background: #1a1e2a; border: 1px solid #2a2e3a; border-radius: 8px; padding: 1.5em; z-index: 11; width: 90%; max-width: 460px; max-height: 85vh; overflow-y: auto; }

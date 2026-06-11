@@ -16,6 +16,7 @@ from fastapi.staticfiles import StaticFiles
 from starlette.middleware.sessions import SessionMiddleware
 
 from . import __version__
+from .agent_admin import build_router as build_agent_admin_router
 from .auth import build_router as build_auth_router
 from .config import OperatorConsoleConfig
 from .proxy import build_router as build_proxy_router
@@ -51,6 +52,10 @@ def create_app(config: OperatorConsoleConfig | None = None) -> FastAPI:
 
     # Proxy routes — proxies coordinator API with X-Maintainer-Login attribution.
     app.include_router(build_proxy_router(config))
+
+    # Local agent-admin surface (§9 #46): the rage-local assessment agent's
+    # config/spend-cap — session-gated direct read/write, NOT a coordinator proxy.
+    app.include_router(build_agent_admin_router(config))
 
     @app.get("/api/v0/health")
     async def health() -> JSONResponse:
