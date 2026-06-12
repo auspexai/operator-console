@@ -74,6 +74,98 @@ def test_firehose_upstream_error_closes_gracefully(authed_client: TestClient) ->
     assert b"upstream error 403" in r.content
 
 
+# ---- tenant applications (onboarding review queue) ---------------------------
+
+
+def test_tenant_applications_require_session(client: TestClient) -> None:
+    assert client.get("/api/v0/proxy/tenant-applications").status_code == 401
+    assert (
+        client.post("/api/v0/proxy/tenant-applications/app-1/actions/approve", json={}).status_code
+        == 401
+    )
+    assert (
+        client.post(
+            "/api/v0/proxy/tenant-applications/app-1/actions/decline", json={"reason": "x"}
+        ).status_code
+        == 401
+    )
+
+
+@respx.mock
+def test_tenant_applications_list_forwards_status_filter(authed_client: TestClient) -> None:
+    route = respx.get(f"{COORD_URL}/api/v0/tenant-applications?status_filter=pending").mock(
+        return_value=httpx.Response(200, json={"applications": []})
+    )
+    r = authed_client.get("/api/v0/proxy/tenant-applications?status_filter=pending")
+    assert r.status_code == 200
+    assert r.json() == {"applications": []}
+    assert route.calls.last.request.headers.get("X-Maintainer-Login") == "test-maintainer"
+
+
+@respx.mock
+def test_tenant_application_approve_forwards_override(authed_client: TestClient) -> None:
+    route = respx.post(f"{COORD_URL}/api/v0/tenant-applications/app-1/actions/approve").mock(
+        return_value=httpx.Response(
+            200,
+            json={"application_id": "app-1", "status": "approved", "created_tenant_id": "t-x"},
+        )
+    )
+    r = authed_client.post(
+        "/api/v0/proxy/tenant-applications/app-1/actions/approve",
+        json={"tenant_id_override": "t-x"},
+    )
+    assert r.status_code == 200
+    assert r.json()["created_tenant_id"] == "t-x"
+    import json as _json
+
+    assert _json.loads(route.calls.last.request.content) == {"tenant_id_override": "t-x"}
+
+
+@respx.mock
+def test_tenant_application_approve_without_override_sends_no_body(
+    authed_client: TestClient,
+) -> None:
+    route = respx.post(f"{COORD_URL}/api/v0/tenant-applications/app-1/actions/approve").mock(
+        return_value=httpx.Response(200, json={"application_id": "app-1", "status": "approved"})
+    )
+    # The console sends {} when the requested tenant id is kept as-is; the
+    # proxy forwards no override (the coordinator uses requested_tenant_id).
+    r = authed_client.post("/api/v0/proxy/tenant-applications/app-1/actions/approve", json={})
+    assert r.status_code == 200
+    assert route.calls.last.request.content in (b"", b"null")
+
+
+@respx.mock
+def test_tenant_application_decline_forwards_reason(authed_client: TestClient) -> None:
+    route = respx.post(f"{COORD_URL}/api/v0/tenant-applications/app-1/actions/decline").mock(
+        return_value=httpx.Response(200, json={"application_id": "app-1", "status": "declined"})
+    )
+    r = authed_client.post(
+        "/api/v0/proxy/tenant-applications/app-1/actions/decline",
+        json={"reason": "not a research fit"},
+    )
+    assert r.status_code == 200
+    import json as _json
+
+    assert _json.loads(route.calls.last.request.content) == {"reason": "not a research fit"}
+
+
+@respx.mock
+def test_tenant_application_decline_upstream_422_passes_through(
+    authed_client: TestClient,
+) -> None:
+    # The coordinator enforces the mandatory reason; its 4xx passes through.
+    respx.post(f"{COORD_URL}/api/v0/tenant-applications/app-1/actions/decline").mock(
+        return_value=httpx.Response(
+            422, json={"error": {"code": "reason_required", "message": "reason is required"}}
+        )
+    )
+    r = authed_client.post(
+        "/api/v0/proxy/tenant-applications/app-1/actions/decline", json={"reason": ""}
+    )
+    assert r.status_code == 422
+
+
 # ---- software-requests pipeline + releases (§9 #46) --------------------------
 
 

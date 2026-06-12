@@ -35,7 +35,29 @@
     release_version: string | null;
   };
 
+  // Tenant applications (onboarding review queue): the maintainer-side end of
+  // the website application form. Approve is ONE action on the coordinator —
+  // tenant created + applicant key bound + account linked.
+  type TenantApplication = {
+    application_id: string;
+    account_id: string;
+    github_login: string;
+    requested_tenant_id: string;
+    contact_name: string;
+    affiliation: string;
+    research_summary: string;
+    pubkey_hex: string;
+    status: string; // pending | approved | declined
+    created_at: string;
+    resolved_at: string | null;
+    resolved_by: string | null;
+    resolution_reason: string | null;
+    created_tenant_id: string | null;
+  };
+
   let requests = $state<SoftwareRequest[]>([]);
+  let applications = $state<TenantApplication[]>([]);
+  let appsError = $state<string | null>(null);
   let loading = $state(true);
   let error = $state<string | null>(null);
   let actionLoading = $state(false);
@@ -56,6 +78,19 @@
     title: string;
     action: 'approve' | 'decline';
     warning: string | null; // gate warn-text shown inside the modal
+    reason: string;
+  } | null>(null);
+
+  let appApproveModal = $state<{
+    applicationId: string;
+    githubLogin: string;
+    requestedTenantId: string;
+    tenantId: string; // editable; sent as tenant_id_override when changed
+  } | null>(null);
+
+  let appDeclineModal = $state<{
+    applicationId: string;
+    githubLogin: string;
     reason: string;
   } | null>(null);
 
@@ -111,9 +146,20 @@
   async function loadAll(silent = false): Promise<boolean> {
     if (!silent) loading = true;
     try {
-      const reqR = await fetch('/api/v0/proxy/software-requests');
+      const [reqR, appR] = await Promise.all([
+        fetch('/api/v0/proxy/software-requests'),
+        fetch('/api/v0/proxy/tenant-applications'),
+      ]);
       if (!reqR.ok) throw new Error(`software-requests HTTP ${reqR.status}`);
       requests = (await reqR.json()).requests || [];
+      // Section-level degrade: a coordinator without the tenant-applications
+      // routes yet shouldn't take down the software/model queues.
+      if (appR.ok) {
+        applications = (await appR.json()).applications || [];
+        appsError = null;
+      } else {
+        appsError = `HTTP ${appR.status}`;
+      }
       error = null;
       return true;
     } catch (e) {
@@ -123,6 +169,92 @@
       if (!silent) loading = false;
     }
   }
+
+  function openAppApprove(app: TenantApplication) {
+    appApproveModal = {
+      applicationId: app.application_id,
+      githubLogin: app.github_login,
+      requestedTenantId: app.requested_tenant_id,
+      tenantId: app.requested_tenant_id,
+    };
+  }
+
+  async function submitAppApprove() {
+    if (!appApproveModal) return;
+    const m = appApproveModal;
+    appApproveModal = null;
+    actionLoading = true;
+    try {
+      const tenantId = m.tenantId.trim();
+      const body =
+        tenantId && tenantId !== m.requestedTenantId ? { tenant_id_override: tenantId } : {};
+      const r = await fetch(
+        `/api/v0/proxy/tenant-applications/${m.applicationId}/actions/approve`,
+        {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify(body),
+        },
+      );
+      if (!r.ok) {
+        const d = await r.json().catch(() => ({}));
+        throw new Error(JSON.stringify(d));
+      }
+      await loadAll(true);
+    } catch (e) {
+      alert(`approve failed: ${(e as Error).message}`);
+    } finally {
+      actionLoading = false;
+    }
+  }
+
+  function openAppDecline(app: TenantApplication) {
+    appDeclineModal = {
+      applicationId: app.application_id,
+      githubLogin: app.github_login,
+      reason: '',
+    };
+  }
+
+  async function submitAppDecline() {
+    if (!appDeclineModal) return;
+    const m = appDeclineModal;
+    appDeclineModal = null;
+    actionLoading = true;
+    try {
+      const r = await fetch(
+        `/api/v0/proxy/tenant-applications/${m.applicationId}/actions/decline`,
+        {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ reason: m.reason }),
+        },
+      );
+      if (!r.ok) {
+        const d = await r.json().catch(() => ({}));
+        throw new Error(JSON.stringify(d));
+      }
+      await loadAll(true);
+    } catch (e) {
+      alert(`decline failed: ${(e as Error).message}`);
+    } finally {
+      actionLoading = false;
+    }
+  }
+
+  // Truncated pubkey display (mirrors the /tenants linkage convention).
+  const shortHex = (hex: string | null | undefined) => (hex ? `${hex.slice(0, 16)}…` : '—');
+
+  let pendingApps = $derived(
+    applications
+      .filter((a) => a.status === 'pending')
+      .sort((a, b) => b.created_at.localeCompare(a.created_at)),
+  );
+  let resolvedApps = $derived(
+    applications
+      .filter((a) => a.status !== 'pending')
+      .sort((a, b) => (b.resolved_at ?? '').localeCompare(a.resolved_at ?? '')),
+  );
 
   function openAssess(req: SoftwareRequest) {
     assessModal = {
@@ -233,6 +365,10 @@
         'requirement.assessed',
         'requirement.resolved',
         'release.published',
+        // Tenant-application doorbells (coordinator side in flight; harmless
+        // if never emitted — the 30s poll stays the source of truth).
+        'application.submitted',
+        'application.resolved',
       ],
     });
   });
@@ -256,6 +392,75 @@
   {:else if error}
     <p class="errortext">Failed to load: {error}</p>
   {:else}
+    <!-- Tenant applications (onboarding review queue) -->
+    <h2 class="section">Tenant applications</h2>
+    <p class="muted">
+      Researcher onboarding: each application carries the applicant's GitHub identity and their
+      Ed25519 public key. <em>Approving</em> creates the tenant, binds the key, and links the
+      account in one action; <em>declining</em> requires a reason (audited).
+    </p>
+    {#if appsError}
+      <p class="muted">Tenant applications unavailable (coordinator {appsError}).</p>
+    {:else}
+      {#if pendingApps.length === 0}
+        <p class="muted">No pending applications.</p>
+      {:else}
+        <table>
+          <thead>
+            <tr><th>applicant</th><th>affiliation</th><th>requested tenant</th><th>pubkey</th><th>research summary</th><th>created</th><th></th></tr>
+          </thead>
+          <tbody>
+            {#each pendingApps as app (app.application_id)}
+              <tr class="pending">
+                <td>
+                  <strong>@{app.github_login}</strong><br />
+                  <span class="muted">{app.contact_name}</span>
+                </td>
+                <td>{app.affiliation}</td>
+                <td class="mono">{app.requested_tenant_id}</td>
+                <td class="mono" title={app.pubkey_hex}>{shortHex(app.pubkey_hex)}</td>
+                <td>
+                  <details>
+                    <summary class="muted">view summary</summary>
+                    <p class="detail-text">{app.research_summary}</p>
+                  </details>
+                </td>
+                <td class="mono">{new Date(app.created_at).toLocaleString()}</td>
+                <td class="actions">
+                  <button class="primary" onclick={() => openAppApprove(app)} disabled={actionLoading}>approve</button>
+                  <button class="danger" onclick={() => openAppDecline(app)} disabled={actionLoading}>decline</button>
+                </td>
+              </tr>
+            {/each}
+          </tbody>
+        </table>
+      {/if}
+      {#if resolvedApps.length > 0}
+        <details class="resolved-apps">
+          <summary class="muted">resolved applications ({resolvedApps.length})</summary>
+          <table>
+            <thead>
+              <tr><th>applicant</th><th>requested tenant</th><th>status</th><th>resolution</th><th>resolved</th></tr>
+            </thead>
+            <tbody>
+              {#each resolvedApps as app (app.application_id)}
+                <tr>
+                  <td><strong>@{app.github_login}</strong> <span class="muted">{app.contact_name}</span></td>
+                  <td class="mono">{app.requested_tenant_id}</td>
+                  <td>
+                    <span class="badge status-{app.status}">{app.status}</span>
+                    {#if app.created_tenant_id}<br /><span class="muted mono">→ {app.created_tenant_id}</span>{/if}
+                  </td>
+                  <td><span class="muted">{app.resolved_by ?? '—'}{app.resolution_reason ? `: ${app.resolution_reason}` : ''}</span></td>
+                  <td class="mono">{app.resolved_at ? new Date(app.resolved_at).toLocaleString() : '—'}</td>
+                </tr>
+              {/each}
+            </tbody>
+          </table>
+        </details>
+      {/if}
+    {/if}
+
     <!-- Software-requirements queue -->
     <h2 class="section">Software-requirements queue</h2>
     <p class="muted">
@@ -403,6 +608,46 @@
     </div>
   {/if}
 
+  {#if appApproveModal}
+    <div class="modal-backdrop" onclick={() => (appApproveModal = null)}></div>
+    <div class="modal">
+      <h2>Approve tenant application</h2>
+      <p class="mono">@{appApproveModal.githubLogin}</p>
+      <p class="warn-text">
+        One action: approving creates the tenant, binds the applicant's key, and links their
+        account. There is no separate confirmation step.
+      </p>
+      <label>Tenant id (edit to override the requested id)
+        <input bind:value={appApproveModal.tenantId} />
+      </label>
+      {#if appApproveModal.tenantId.trim() && appApproveModal.tenantId.trim() !== appApproveModal.requestedTenantId}
+        <p class="muted">
+          Overriding requested <span class="mono">{appApproveModal.requestedTenantId}</span> →
+          <span class="mono">{appApproveModal.tenantId.trim()}</span>
+        </p>
+      {/if}
+      <div class="modal-actions">
+        <button onclick={() => (appApproveModal = null)}>cancel</button>
+        <button class="primary" onclick={submitAppApprove} disabled={actionLoading || !appApproveModal.tenantId.trim()}>approve</button>
+      </div>
+    </div>
+  {/if}
+
+  {#if appDeclineModal}
+    <div class="modal-backdrop" onclick={() => (appDeclineModal = null)}></div>
+    <div class="modal">
+      <h2>Decline tenant application</h2>
+      <p class="mono">@{appDeclineModal.githubLogin}</p>
+      <label>Reason (required)
+        <textarea bind:value={appDeclineModal.reason} rows="3" placeholder="recorded in the audit log"></textarea>
+      </label>
+      <div class="modal-actions">
+        <button onclick={() => (appDeclineModal = null)}>cancel</button>
+        <button class="danger" onclick={submitAppDecline} disabled={actionLoading || !appDeclineModal.reason.trim()}>decline</button>
+      </div>
+    </div>
+  {/if}
+
 </main>
 
 <style>
@@ -434,6 +679,8 @@
   .assessment-cell dt { color: #9ca3af; font-weight: 600; margin-top: 0.4em; }
   .assessment-cell dd { margin: 0.1em 0 0; color: #d4d4dc; white-space: pre-wrap; }
   details summary { cursor: pointer; font-size: 0.85em; }
+  .resolved-apps { margin: 0.5em 0 1em; }
+  .resolved-apps table { margin-top: 0.5em; }
   .detail-text { margin: 0.4em 0 0; font-size: 0.9em; white-space: pre-wrap; max-width: 320px; }
   .actions { white-space: nowrap; }
   .muted { color: #6b7280; font-size: 0.95em; }

@@ -119,9 +119,19 @@
     assessment: unknown | null;
   };
 
+  // Tenant applications (lite view — full review on /requests)
+  type TenantApplicationLite = {
+    application_id: string;
+    github_login: string;
+    requested_tenant_id: string;
+    affiliation: string;
+    status: string; // pending | approved | declined
+  };
+
   let experiments = $state<Experiment[]>([]);
   let requests = $state<ModelRequest[]>([]);
   let softwareRequests = $state<SoftwareRequestLite[]>([]);
+  let tenantApplications = $state<TenantApplicationLite[]>([]);
   let schedExps = $state<SchedExp[]>([]);
   let fleet = $state<FleetWorker[]>([]);
   let suspendedAccounts = $state<Account[]>([]);
@@ -134,10 +144,11 @@
   async function loadTriage(silent = false): Promise<boolean> {
     if (!silent) triageLoading = true;
     try {
-      const [expR, reqR, swrR, schedR, wkrR, acctR] = await Promise.all([
+      const [expR, reqR, swrR, appR, schedR, wkrR, acctR] = await Promise.all([
         fetch('/api/v0/proxy/experiments'),
         fetch('/api/v0/proxy/model-requests'),
         fetch('/api/v0/proxy/software-requests'),
+        fetch('/api/v0/proxy/tenant-applications'),
         fetch('/api/v0/proxy/scheduler/state'),
         fetch('/api/v0/proxy/workers'),
         fetch('/api/v0/proxy/accounts'),
@@ -147,6 +158,7 @@
       experiments = expBody.experiments || expBody || [];
       if (reqR.ok) requests = (await reqR.json()).requests || [];
       if (swrR.ok) softwareRequests = (await swrR.json()).requests || [];
+      if (appR.ok) tenantApplications = (await appR.json()).applications || [];
       if (schedR.ok) schedExps = (await schedR.json()).experiments || [];
       if (wkrR.ok) {
         const w = await wkrR.json();
@@ -176,6 +188,7 @@
   let pendingSoftware = $derived(
     softwareRequests.filter((r) => r.status === 'pending' || r.status === 'assessed'),
   );
+  let pendingApplications = $derived(tenantApplications.filter((a) => a.status === 'pending'));
   let blockedExps = $derived(schedExps.filter((e) => e.blocked));
   let stalledExps = $derived(schedExps.filter((e) => !e.blocked && (e.stalled_units ?? 0) > 0));
   let pausedExps = $derived(experiments.filter((e) => e.status === 'paused'));
@@ -230,6 +243,7 @@
     pendingApprovals.length +
       pendingRequests.length +
       pendingSoftware.length +
+      pendingApplications.length +
       blockedExps.length +
       stalledExps.length +
       holds.length +
@@ -560,6 +574,10 @@
             'requirement.assessed',
             'requirement.resolved',
             'release.published',
+            // Tenant-application doorbells (coordinator side in flight;
+            // harmless if never emitted — the poll stays the truth).
+            'application.submitted',
+            'application.resolved',
           ],
         });
       }
@@ -735,7 +753,7 @@
         {/if}
       </div>
 
-      {#if pendingApprovals.length > 0 || pendingRequests.length > 0 || pendingSoftware.length > 0}
+      {#if pendingApprovals.length > 0 || pendingRequests.length > 0 || pendingSoftware.length > 0 || pendingApplications.length > 0}
         <section>
           <h2 class="section">Review</h2>
           {#if pendingApprovals.length > 0}
@@ -751,6 +769,24 @@
                     <td>{exp.tenant_experiment_label ?? ''}</td>
                     <td class="mono">{exp.submitted_at}</td>
                     <td><button class="primary" onclick={() => showApprovalForm(exp)} disabled={actionLoading}>approve…</button></td>
+                  </tr>
+                {/each}
+              </tbody>
+            </table>
+          {/if}
+          {#if pendingApplications.length > 0}
+            <table>
+              <thead>
+                <tr><th>tenant application</th><th>affiliation</th><th>requested tenant</th><th>status</th><th></th></tr>
+              </thead>
+              <tbody>
+                {#each pendingApplications as app (app.application_id)}
+                  <tr>
+                    <td>@{app.github_login}</td>
+                    <td class="muted">{app.affiliation}</td>
+                    <td class="mono">{app.requested_tenant_id}</td>
+                    <td><span class="badge">{app.status}</span></td>
+                    <td><a href="/requests">review →</a></td>
                   </tr>
                 {/each}
               </tbody>

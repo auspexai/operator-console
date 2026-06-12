@@ -308,6 +308,44 @@ def build_router(config) -> APIRouter:
             body,
         )
 
+    # ---- tenant applications (onboarding review queue) ----
+    # Approve is the one-shot onboarding action on the coordinator: tenant
+    # created + applicant key bound + account linked, all in one call.
+
+    @router.get("/tenant-applications")
+    async def list_tenant_applications(request: Request) -> Any:
+        status_filter = request.query_params.get("status_filter")
+        path = "/api/v0/tenant-applications"
+        if status_filter:
+            path += f"?status_filter={quote(status_filter, safe='')}"
+        return await _proxy_get(path, _headers(request))
+
+    @router.post("/tenant-applications/{application_id}/actions/approve")
+    async def approve_tenant_application(request: Request, application_id: str) -> Any:
+        # Optional body: {tenant_id_override} when the maintainer edits the
+        # requested tenant id in the confirm modal; otherwise no body.
+        body = (
+            await request.json()
+            if request.headers.get("content-type", "").startswith("application/json")
+            else {}
+        )
+        return await _proxy_post(
+            f"/api/v0/tenant-applications/{application_id}/actions/approve",
+            _headers(request),
+            {"tenant_id_override": body["tenant_id_override"]}
+            if body.get("tenant_id_override")
+            else None,
+        )
+
+    @router.post("/tenant-applications/{application_id}/actions/decline")
+    async def decline_tenant_application(request: Request, application_id: str) -> Any:
+        body = await request.json()
+        return await _proxy_post(
+            f"/api/v0/tenant-applications/{application_id}/actions/decline",
+            _headers(request),
+            body,
+        )
+
     # ---- software-requests pipeline + release registry (§9 #46) ----
 
     @router.get("/software-requests")
