@@ -49,6 +49,10 @@
     // Optional self-declared research classes (e.g. behavioral_drift,
     // eval_sweeps); older coordinators omit the field entirely.
     research_classes?: string[] | null;
+    // Multi-tenancy review context: tenant ids already linked to the
+    // applicant's account. [] / absent = first tenancy; older coordinators
+    // omit the field entirely.
+    account_existing_tenants?: string[] | null;
     pubkey_hex: string;
     status: string; // pending | approved | declined
     created_at: string;
@@ -424,7 +428,22 @@
                   <span class="muted">{app.contact_name}</span>
                 </td>
                 <td>{app.affiliation}</td>
-                <td class="mono">{app.requested_tenant_id}</td>
+                <td class="mono">
+                  {app.requested_tenant_id}
+                  {#if app.account_existing_tenants?.length}
+                    <!-- Multi-tenancy notice: approving here grants an ADDITIONAL
+                         tenancy to an account that already holds one — make it a
+                         knowing act, not a surprise in the tenants list later. -->
+                    <div class="multi-tenancy-notice">
+                      <span class="notice-label">account already holds:</span>
+                      <span class="chips">
+                        {#each app.account_existing_tenants as t (t)}
+                          <span class="badge existing-tenant">{t}</span>
+                        {/each}
+                      </span>
+                    </div>
+                  {/if}
+                </td>
                 <td class="mono" title={app.pubkey_hex}>{shortHex(app.pubkey_hex)}</td>
                 <td>
                   {#if app.research_classes?.length}
@@ -690,6 +709,10 @@
   .badge.ratified { background: #14532d; color: #86efac; }
   .chips { display: flex; flex-wrap: wrap; gap: 0.3em; margin-bottom: 0.35em; max-width: 320px; }
   .badge.rclass { background: #2e1065; color: #c4b5fd; font-size: 0.8em; }
+  .multi-tenancy-notice { margin-top: 0.45em; padding: 0.35em 0.5em; background: rgba(120, 53, 15, 0.3); border: 1px solid #b45309; border-radius: 4px; max-width: 240px; }
+  .multi-tenancy-notice .notice-label { display: block; color: #fcd34d; font-weight: 600; margin-bottom: 0.3em; }
+  .multi-tenancy-notice .chips { margin-bottom: 0; }
+  .badge.existing-tenant { background: #78350f; color: #fcd34d; border: 1px solid #d97706; }
   .assessment-cell { max-width: 280px; }
   .assessment-cell dl { margin: 0.5em 0 0; font-size: 0.9em; }
   .assessment-cell dt { color: #9ca3af; font-weight: 600; margin-top: 0.4em; }
