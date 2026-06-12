@@ -5,6 +5,8 @@
   // attention queue; Run = the live operational records; Records = the
   // browse/audit surfaces. /scheduler dissolved in I2 (its sections moved to
   // NOW + /workers + /models + the experiment record); only a redirect remains.
+  // /tenants dissolved 2026-06-12 (one home per fact: account = the root) —
+  // tenants nest under the Accounts pages.
   const groups = [
     { label: null, links: [{ href: '/', label: 'Now' }] },
     {
@@ -19,7 +21,6 @@
     {
       label: 'Records',
       links: [
-        { href: '/tenants', label: 'Tenants' },
         { href: '/accounts', label: 'Accounts' },
         { href: '/receipts', label: 'Receipts' },
         { href: '/audit', label: 'Audit' },

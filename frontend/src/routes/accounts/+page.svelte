@@ -19,6 +19,26 @@
     identity_verification_method: string | null;
   };
 
+  // Full tenant facts (the former standalone /tenants page collapsed into this
+  // page — account = the root, one home per fact). The operator credential sees
+  // contact_email + maintainer_pubkey in the tenants LIST response.
+  type Tenant = {
+    tenant_id: string;
+    display_name: string | null;
+    description: string | null;
+    contact_public: string | null;
+    contact_email: string | null;
+    registered_at: string | null;
+    maintainer_pubkey: string | null;
+  };
+
+  type TenantEntry = Tenant & {
+    account_id: string | null;
+    // false = the per-tenant linkage fetch failed, so the account binding is
+    // UNKNOWN (don't assert "no account").
+    linkage_ok: boolean;
+  };
+
   const tierNames: Record<number, string> = {
     0: 'T0 anonymous',
     1: 'T1 authenticated',
@@ -32,16 +52,30 @@
   let actionLoading = $state(false);
   let live = $state(false);
 
-  // Account → tenants linkage (the reverse of the Tenants page's tenant→account
-  // view, completing the design's account ↔ tenants ↔ workers all-linkages
-  // picture). The tenants LIST response carries no account_id (operator-only
-  // field, exposed via the per-tenant linkage endpoint), so join client-side:
-  // list tenants, fetch each tenant's linkage, and bucket tenant_ids by
-  // account_id. Tenant count is small, so the fan-out is cheap. Best-effort
-  // enrichment: on failure render no linkage rather than failing the page
-  // (matching the detail page's receipt-stats/workers degrade).
-  let tenantsByAccount = $state<Record<string, string[]>>({});
+  // Tenant directory, nested under accounts. The tenants LIST response carries
+  // no account_id (operator-only field, exposed via the per-tenant linkage
+  // endpoint), so join client-side: list tenants, fetch each tenant's linkage,
+  // and bucket the full tenant facts by account_id. Tenant count is small, so
+  // the fan-out is cheap. Best-effort enrichment: on failure render no tenants
+  // rather than failing the page (matching the detail page's
+  // receipt-stats/workers degrade).
+  let tenantDirectory = $state<TenantEntry[]>([]);
   let pendingAppsByAccount = $state<Record<string, number>>({});
+
+  const knownAccountIds = $derived(new Set(accounts.map((a) => a.account_id)));
+  const tenantsByAccount = $derived.by(() => {
+    const byAccount: Record<string, TenantEntry[]> = {};
+    for (const t of tenantDirectory) {
+      if (t.account_id && knownAccountIds.has(t.account_id)) (byAccount[t.account_id] ??= []).push(t);
+    }
+    return byAccount;
+  });
+  // No account_id (legacy hand-created tenants), a dangling account_id, or an
+  // unknown binding — all land in the bottom "Unlinked tenants" section so
+  // every registered tenant has exactly one home on this page.
+  const unlinkedTenants = $derived(
+    tenantDirectory.filter((t) => !t.account_id || !knownAccountIds.has(t.account_id)),
+  );
 
   async function loadLinkages(): Promise<void> {
     try {
@@ -52,22 +86,19 @@
 
       if (tenantsRes.ok) {
         const body = await tenantsRes.json();
-        const tenants: { tenant_id: string }[] = body.tenants || body || [];
-        const linkages = await Promise.all(
-          tenants.map(async (t) => {
+        const tenants: Tenant[] = body.tenants || body || [];
+        tenantDirectory = await Promise.all(
+          tenants.map(async (t): Promise<TenantEntry> => {
             try {
               const r = await fetch(`/api/v0/proxy/tenants/${encodeURIComponent(t.tenant_id)}/linkage`);
-              return r.ok ? ((await r.json()) as { tenant_id?: string; account_id?: string }) : null;
+              if (!r.ok) throw new Error(`HTTP ${r.status}`);
+              const lk = (await r.json()) as { account_id?: string | null };
+              return { ...t, account_id: lk.account_id ?? null, linkage_ok: true };
             } catch {
-              return null;
+              return { ...t, account_id: null, linkage_ok: false };
             }
           }),
         );
-        const byAccount: Record<string, string[]> = {};
-        for (const lk of linkages) {
-          if (lk && lk.account_id && lk.tenant_id) (byAccount[lk.account_id] ??= []).push(lk.tenant_id);
-        }
-        tenantsByAccount = byAccount;
       }
 
       // Section-level degrade: a coordinator without the tenant-applications
@@ -91,6 +122,8 @@
     const [ok] = await Promise.all([loadAccounts(silent), loadLinkages()]);
     return ok;
   }
+
+  const shortHex = (hex: string | null | undefined) => (hex ? `${hex.slice(0, 16)}…` : '—');
 
   let tierModal = $state<{
     accountId: string;
@@ -238,7 +271,7 @@
         </tr>
       </thead>
       <tbody>
-        {#each accounts as acct}
+        {#each accounts as acct (acct.account_id)}
           <tr class:suspended={!!acct.suspended_at} class:retired={!!acct.retired_at}>
             <td class="mono"><a href="/accounts/{acct.account_id}" class="id-link">{acct.account_id}</a></td>
             <td>
@@ -247,10 +280,11 @@
             </td>
             <td><span class="badge tier-{acct.trust_tier}">{tierNames[acct.trust_tier] ?? `T${acct.trust_tier}`}</span></td>
             <td class="linkage-cell">
-              <!-- Empty for most volunteers — only researcher accounts carry tenants/applications. -->
-              {#each tenantsByAccount[acct.account_id] ?? [] as tid (tid)}
-                <a href="/tenants" class="tenant-chip mono">{tid}</a>
-              {/each}
+              <!-- Empty for most volunteers — only researcher accounts carry tenants/applications.
+                   Tenant facts render nested below the row (the former /tenants page's home). -->
+              {#if (tenantsByAccount[acct.account_id] ?? []).length > 0}
+                <span class="muted">{tenantsByAccount[acct.account_id].length} tenant{tenantsByAccount[acct.account_id].length === 1 ? '' : 's'} ↓</span>
+              {/if}
               {#if pendingAppsByAccount[acct.account_id]}
                 <a href="/requests" class="pending-chip" title="pending tenant application(s) — review on the requests page">{pendingAppsByAccount[acct.account_id]} pending app{pendingAppsByAccount[acct.account_id] === 1 ? '' : 's'}</a>
               {/if}
@@ -284,10 +318,66 @@
               {/if}
             </td>
           </tr>
+          {#if (tenantsByAccount[acct.account_id] ?? []).length > 0}
+            <!-- Tenants nest under their account (one home per fact: account =
+                 the root). Full tenant facts, formerly the /tenants page. -->
+            <tr class="tenant-nest-row">
+              <td class="nest-indent" aria-hidden="true"></td>
+              <td colspan="6">
+                {#each tenantsByAccount[acct.account_id] as t (t.tenant_id)}
+                  <div class="tenant-block">
+                    <div class="tenant-head">
+                      <span class="badge tenant-badge">tenant</span>
+                      <span class="mono tenant-id">{t.tenant_id}</span>
+                      {#if t.display_name}<span class="tenant-name">{t.display_name}</span>{/if}
+                    </div>
+                    <dl class="tenant-facts">
+                      <dt>contact</dt><dd>{t.contact_email ?? t.contact_public ?? '—'}</dd>
+                      <dt>registered</dt><dd class="mono">{t.registered_at ? new Date(t.registered_at).toLocaleString() : '—'}</dd>
+                      <dt>maintainer pubkey</dt><dd class="mono" title={t.maintainer_pubkey ?? undefined}>{shortHex(t.maintainer_pubkey)}</dd>
+                      {#if t.description}<dt>description</dt><dd>{t.description}</dd>{/if}
+                    </dl>
+                  </div>
+                {/each}
+              </td>
+            </tr>
+          {/if}
         {/each}
       </tbody>
     </table>
     <p class="muted">{accounts.length} account(s)</p>
+  {/if}
+
+  <!-- Tenants with NO account binding (legacy hand-created registrations) —
+       rendered even when the accounts list itself is empty, so every
+       registered tenant keeps a home on this page. -->
+  {#if !loading && !error && unlinkedTenants.length > 0}
+    <section class="unlinked-section">
+      <h2>Unlinked tenants</h2>
+      <p class="muted">Registered tenants with no linked account (legacy hand-created) — no worker association.</p>
+      {#each unlinkedTenants as t (t.tenant_id)}
+        <div class="tenant-block">
+          <div class="tenant-head">
+            <span class="badge tenant-badge">tenant</span>
+            <span class="mono tenant-id">{t.tenant_id}</span>
+            {#if t.display_name}<span class="tenant-name">{t.display_name}</span>{/if}
+            {#if !t.linkage_ok}
+              <span class="warn-text">account linkage unavailable</span>
+            {:else if t.account_id}
+              <span class="warn-text">dangling account_id {t.account_id} (no matching account)</span>
+            {:else}
+              <span class="badge no-account-badge">no account</span>
+            {/if}
+          </div>
+          <dl class="tenant-facts">
+            <dt>contact</dt><dd>{t.contact_email ?? t.contact_public ?? '—'}</dd>
+            <dt>registered</dt><dd class="mono">{t.registered_at ? new Date(t.registered_at).toLocaleString() : '—'}</dd>
+            <dt>maintainer pubkey</dt><dd class="mono" title={t.maintainer_pubkey ?? undefined}>{shortHex(t.maintainer_pubkey)}</dd>
+            {#if t.description}<dt>description</dt><dd>{t.description}</dd>{/if}
+          </dl>
+        </div>
+      {/each}
+    </section>
   {/if}
 
   {#if tierModal}
@@ -393,11 +483,25 @@
   .errortext { color: #fca5a5; }
   .id-link { color: #a78bfa; text-decoration: none; }
   .id-link:hover { text-decoration: underline; }
-  .linkage-cell .tenant-chip { margin-right: 0.3em; }
-  .tenant-chip { display: inline-block; padding: 0.1em 0.55em; border-radius: 3px; font-size: 0.85em; font-weight: 500; background: #312e81; color: #c4b5fd; text-decoration: none; }
-  .tenant-chip:hover { background: #3730a3; }
+  .linkage-cell .pending-chip { margin-left: 0.3em; }
   .pending-chip { display: inline-block; padding: 0.1em 0.55em; border-radius: 3px; font-size: 0.85em; font-weight: 500; background: #78350f; color: #fcd34d; text-decoration: none; }
   .pending-chip:hover { background: #92400e; }
+  tr.tenant-nest-row td { background: #0d1119; border-bottom: 1px solid #1a1e2a; }
+  td.nest-indent { width: 1.5em; }
+  .tenant-block { padding: 0.5em 0.25em 0.6em; }
+  .tenant-block + .tenant-block { border-top: 1px solid #1a1e2a; }
+  .tenant-head { display: flex; align-items: center; gap: 0.5em; flex-wrap: wrap; }
+  .tenant-id { color: #c4b5fd; }
+  .tenant-name { color: #d4d4dc; }
+  .tenant-badge { background: #312e81; color: #c4b5fd; }
+  .no-account-badge { background: #78350f; color: #fcd34d; }
+  .tenant-facts { display: grid; grid-template-columns: 10em 1fr; gap: 0.2em 1em; margin: 0.4em 0 0; font-size: 0.9em; }
+  .tenant-facts dt { color: #6b7280; font-size: 0.85em; text-transform: uppercase; letter-spacing: 0.06em; }
+  .tenant-facts dd { margin: 0; }
+  .unlinked-section { margin-top: 2em; }
+  .unlinked-section h2 { font-size: 1.05em; font-weight: 600; color: #fff; margin: 0 0 0.25em; }
+  .unlinked-section .tenant-block { background: #0d1119; border: 1px solid #1a1e2a; border-radius: 8px; padding: 0.6em 0.85em; margin: 0.5em 0; }
+  .unlinked-section .tenant-block + .tenant-block { border-top: 1px solid #1a1e2a; }
   .actions { white-space: nowrap; }
   button { background: #1f2937; border: 1px solid #2a2e3a; color: #d4d4dc; padding: 0.25em 0.65em; border-radius: 4px; cursor: pointer; font: inherit; font-size: 0.85em; }
   button:hover { background: #2a2e3a; }

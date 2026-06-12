@@ -44,6 +44,20 @@
     quarantine_reason: string | null;
   };
 
+  // Full tenant facts (the former standalone /tenants page collapsed into the
+  // Accounts pages — account = the root, one home per fact). The operator
+  // credential sees contact_email + maintainer_pubkey in the tenants LIST
+  // response.
+  type Tenant = {
+    tenant_id: string;
+    display_name: string | null;
+    description: string | null;
+    contact_public: string | null;
+    contact_email: string | null;
+    registered_at: string | null;
+    maintainer_pubkey: string | null;
+  };
+
   const tierNames: Record<number, string> = {
     0: 'T0 anonymous',
     1: 'T1 authenticated',
@@ -57,17 +71,19 @@
   let account = $state<Account | null>(null);
   let receiptStats = $state<ReceiptStats | null>(null);
   let boundWorkers = $state<Worker[]>([]);
-  // Account → tenants linkage (the reverse of the Tenants page's tenant→account
-  // view, completing account ↔ tenants ↔ workers on this page). The tenants
-  // LIST response carries no account_id (operator-only field, exposed via the
-  // per-tenant linkage endpoint), so join client-side: fetch each tenant's
-  // linkage and keep the ones bound to this account.
-  let linkedTenants = $state<string[]>([]);
+  // Account → tenants, with full tenant facts (account ↔ tenants ↔ workers all
+  // on this page). The tenants LIST response carries no account_id
+  // (operator-only field, exposed via the per-tenant linkage endpoint), so
+  // join client-side: fetch each tenant's linkage and keep the full facts of
+  // the ones bound to this account.
+  let linkedTenants = $state<Tenant[]>([]);
   let pendingAppCount = $state(0);
   let loading = $state(true);
   let error = $state<string | null>(null);
   let actionLoading = $state(false);
   let live = $state(false);
+
+  const shortHex = (hex: string | null | undefined) => (hex ? `${hex.slice(0, 16)}…` : '—');
 
   let tierModal = $state<{
     action: 'promote' | 'demote';
@@ -105,22 +121,18 @@
       // best-effort like the stats/workers sections above.
       if (tenantsRes.ok) {
         const tenantsBody = await tenantsRes.json();
-        const allTenants: { tenant_id: string }[] = tenantsBody.tenants || tenantsBody || [];
+        const allTenants: Tenant[] = tenantsBody.tenants || tenantsBody || [];
         const linkages = await Promise.all(
           allTenants.map(async (t) => {
             try {
               const r = await fetch(`/api/v0/proxy/tenants/${encodeURIComponent(t.tenant_id)}/linkage`);
-              return r.ok ? ((await r.json()) as { tenant_id?: string; account_id?: string }) : null;
+              return r.ok ? ((await r.json()) as { account_id?: string }) : null;
             } catch {
               return null;
             }
           }),
         );
-        const mine: string[] = [];
-        for (const lk of linkages) {
-          if (lk && lk.account_id === accountId && lk.tenant_id) mine.push(lk.tenant_id);
-        }
-        linkedTenants = mine;
+        linkedTenants = allTenants.filter((_, i) => linkages[i]?.account_id === accountId);
       }
 
       if (appsRes.ok) {
@@ -336,11 +348,21 @@
       <section class="card">
         <h2>Linked tenants</h2>
         {#if linkedTenants.length > 0}
-          <div class="chip-row">
-            {#each linkedTenants as tid (tid)}
-              <a href="/tenants" class="tenant-chip mono">{tid}</a>
-            {/each}
-          </div>
+          {#each linkedTenants as t (t.tenant_id)}
+            <div class="tenant-block">
+              <div class="tenant-head">
+                <span class="badge tenant-badge">tenant</span>
+                <span class="mono tenant-id">{t.tenant_id}</span>
+                {#if t.display_name}<span class="tenant-name">{t.display_name}</span>{/if}
+              </div>
+              <dl class="tenant-facts">
+                <dt>contact</dt><dd>{t.contact_email ?? t.contact_public ?? '—'}</dd>
+                <dt>registered</dt><dd class="mono">{t.registered_at ? new Date(t.registered_at).toLocaleString() : '—'}</dd>
+                <dt>maintainer pubkey</dt><dd class="mono" title={t.maintainer_pubkey ?? undefined}>{shortHex(t.maintainer_pubkey)}</dd>
+                {#if t.description}<dt>description</dt><dd>{t.description}</dd>{/if}
+              </dl>
+            </div>
+          {/each}
         {:else}
           <p class="muted">No tenants linked to this account.</p>
         {/if}
@@ -523,9 +545,15 @@
   .errortext { color: #fca5a5; }
   .id-link { color: #a78bfa; text-decoration: none; }
   .id-link:hover { text-decoration: underline; }
-  .chip-row { display: flex; flex-wrap: wrap; gap: 0.4em; }
-  .tenant-chip { display: inline-block; padding: 0.1em 0.55em; border-radius: 3px; font-size: 0.85em; font-weight: 500; background: #312e81; color: #c4b5fd; text-decoration: none; }
-  .tenant-chip:hover { background: #3730a3; }
+  .tenant-block { padding: 0.5em 0.25em 0.6em; }
+  .tenant-block + .tenant-block { border-top: 1px solid #1a1e2a; }
+  .tenant-head { display: flex; align-items: center; gap: 0.5em; flex-wrap: wrap; }
+  .tenant-id { color: #c4b5fd; }
+  .tenant-name { color: #d4d4dc; }
+  .tenant-badge { background: #312e81; color: #c4b5fd; }
+  .tenant-facts { display: grid; grid-template-columns: 10em 1fr; gap: 0.2em 1em; margin: 0.4em 0 0; font-size: 0.9em; }
+  .tenant-facts dt { color: #6b7280; font-size: 0.85em; text-transform: uppercase; letter-spacing: 0.06em; }
+  .tenant-facts dd { margin: 0; }
   .pending-line { margin: 0.75em 0 0; }
   .pending-chip { display: inline-block; padding: 0.1em 0.55em; border-radius: 3px; font-size: 0.85em; font-weight: 500; background: #78350f; color: #fcd34d; text-decoration: none; }
   .pending-chip:hover { background: #92400e; }

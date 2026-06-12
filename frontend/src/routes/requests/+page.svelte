@@ -249,7 +249,7 @@
     }
   }
 
-  // Truncated pubkey display (mirrors the /tenants linkage convention).
+  // Truncated pubkey display (mirrors the accounts-page tenant-linkage convention).
   const shortHex = (hex: string | null | undefined) => (hex ? `${hex.slice(0, 16)}…` : '—');
 
   // research_classes ids are snake_case — humanize for display ("behavioral_drift"
@@ -433,7 +433,7 @@
                   {#if app.account_existing_tenants?.length}
                     <!-- Multi-tenancy notice: approving here grants an ADDITIONAL
                          tenancy to an account that already holds one — make it a
-                         knowing act, not a surprise in the tenants list later. -->
+                         knowing act, not a surprise in the accounts list later. -->
                     <div class="multi-tenancy-notice">
                       <span class="notice-label">account already holds:</span>
                       <span class="chips">
