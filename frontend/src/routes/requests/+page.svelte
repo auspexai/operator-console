@@ -46,6 +46,9 @@
     contact_name: string;
     affiliation: string;
     research_summary: string;
+    // Optional self-declared research classes (e.g. behavioral_drift,
+    // eval_sweeps); older coordinators omit the field entirely.
+    research_classes?: string[] | null;
     pubkey_hex: string;
     status: string; // pending | approved | declined
     created_at: string;
@@ -245,6 +248,10 @@
   // Truncated pubkey display (mirrors the /tenants linkage convention).
   const shortHex = (hex: string | null | undefined) => (hex ? `${hex.slice(0, 16)}…` : '—');
 
+  // research_classes ids are snake_case — humanize for display ("behavioral_drift"
+  // → "behavioral drift").
+  const humanizeClass = (id: string) => id.replace(/_/g, ' ');
+
   let pendingApps = $derived(
     applications
       .filter((a) => a.status === 'pending')
@@ -420,6 +427,13 @@
                 <td class="mono">{app.requested_tenant_id}</td>
                 <td class="mono" title={app.pubkey_hex}>{shortHex(app.pubkey_hex)}</td>
                 <td>
+                  {#if app.research_classes?.length}
+                    <span class="chips">
+                      {#each app.research_classes as rc (rc)}
+                        <span class="badge rclass">{humanizeClass(rc)}</span>
+                      {/each}
+                    </span>
+                  {/if}
                   <details>
                     <summary class="muted">view summary</summary>
                     <p class="detail-text">{app.research_summary}</p>
@@ -674,6 +688,8 @@
   .badge.verdict-PARTIALLY_COVERED { background: #78350f; color: #fcd34d; }
   .badge.draft { background: #78350f; color: #fcd34d; }
   .badge.ratified { background: #14532d; color: #86efac; }
+  .chips { display: flex; flex-wrap: wrap; gap: 0.3em; margin-bottom: 0.35em; max-width: 320px; }
+  .badge.rclass { background: #2e1065; color: #c4b5fd; font-size: 0.8em; }
   .assessment-cell { max-width: 280px; }
   .assessment-cell dl { margin: 0.5em 0 0; font-size: 0.9em; }
   .assessment-cell dt { color: #9ca3af; font-weight: 600; margin-top: 0.4em; }
