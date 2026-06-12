@@ -57,6 +57,13 @@
   let account = $state<Account | null>(null);
   let receiptStats = $state<ReceiptStats | null>(null);
   let boundWorkers = $state<Worker[]>([]);
+  // Account → tenants linkage (the reverse of the Tenants page's tenant→account
+  // view, completing account ↔ tenants ↔ workers on this page). The tenants
+  // LIST response carries no account_id (operator-only field, exposed via the
+  // per-tenant linkage endpoint), so join client-side: fetch each tenant's
+  // linkage and keep the ones bound to this account.
+  let linkedTenants = $state<string[]>([]);
+  let pendingAppCount = $state(0);
   let loading = $state(true);
   let error = $state<string | null>(null);
   let actionLoading = $state(false);
@@ -71,10 +78,12 @@
   async function loadAccount(silent = false): Promise<boolean> {
     if (!silent) loading = true;
     try {
-      const [accountsRes, statsRes, workersRes] = await Promise.all([
+      const [accountsRes, statsRes, workersRes, tenantsRes, appsRes] = await Promise.all([
         fetch('/api/v0/proxy/accounts'),
         fetch(`/api/v0/proxy/accounts/${encodeURIComponent(accountId)}/receipt-stats`),
         fetch('/api/v0/proxy/workers'),
+        fetch('/api/v0/proxy/tenants'),
+        fetch('/api/v0/proxy/tenant-applications'),
       ]);
       if (!accountsRes.ok) throw new Error(`Accounts: HTTP ${accountsRes.status}`);
       const accountsBody = await accountsRes.json();
@@ -90,6 +99,33 @@
         const workersBody = await workersRes.json();
         const allWorkers: Worker[] = workersBody.workers || workersBody || [];
         boundWorkers = allWorkers.filter(w => w.account_id === accountId);
+      }
+
+      // Tenant count is small, so the per-tenant linkage fan-out is cheap;
+      // best-effort like the stats/workers sections above.
+      if (tenantsRes.ok) {
+        const tenantsBody = await tenantsRes.json();
+        const allTenants: { tenant_id: string }[] = tenantsBody.tenants || tenantsBody || [];
+        const linkages = await Promise.all(
+          allTenants.map(async (t) => {
+            try {
+              const r = await fetch(`/api/v0/proxy/tenants/${encodeURIComponent(t.tenant_id)}/linkage`);
+              return r.ok ? ((await r.json()) as { tenant_id?: string; account_id?: string }) : null;
+            } catch {
+              return null;
+            }
+          }),
+        );
+        const mine: string[] = [];
+        for (const lk of linkages) {
+          if (lk && lk.account_id === accountId && lk.tenant_id) mine.push(lk.tenant_id);
+        }
+        linkedTenants = mine;
+      }
+
+      if (appsRes.ok) {
+        const apps: { account_id?: string; status?: string }[] = (await appsRes.json()).applications || [];
+        pendingAppCount = apps.filter((a) => a.status === 'pending' && a.account_id === accountId).length;
       }
       error = null;
       return true;
@@ -294,6 +330,29 @@
       {/if}
     {/if}
 
+    <!-- Rendered only when this account has tenants or pending applications
+         (most volunteer accounts have neither). -->
+    {#if linkedTenants.length > 0 || pendingAppCount > 0}
+      <section class="card">
+        <h2>Linked tenants</h2>
+        {#if linkedTenants.length > 0}
+          <div class="chip-row">
+            {#each linkedTenants as tid (tid)}
+              <a href="/tenants" class="tenant-chip mono">{tid}</a>
+            {/each}
+          </div>
+        {:else}
+          <p class="muted">No tenants linked to this account.</p>
+        {/if}
+        {#if pendingAppCount > 0}
+          <p class="pending-line">
+            <a href="/requests" class="pending-chip">{pendingAppCount} pending tenant application{pendingAppCount === 1 ? '' : 's'}</a>
+            <span class="muted">— review on the requests page</span>
+          </p>
+        {/if}
+      </section>
+    {/if}
+
     <section class="card">
       <h2>Bound workers</h2>
       {#if boundWorkers.length === 0}
@@ -464,6 +523,12 @@
   .errortext { color: #fca5a5; }
   .id-link { color: #a78bfa; text-decoration: none; }
   .id-link:hover { text-decoration: underline; }
+  .chip-row { display: flex; flex-wrap: wrap; gap: 0.4em; }
+  .tenant-chip { display: inline-block; padding: 0.1em 0.55em; border-radius: 3px; font-size: 0.85em; font-weight: 500; background: #312e81; color: #c4b5fd; text-decoration: none; }
+  .tenant-chip:hover { background: #3730a3; }
+  .pending-line { margin: 0.75em 0 0; }
+  .pending-chip { display: inline-block; padding: 0.1em 0.55em; border-radius: 3px; font-size: 0.85em; font-weight: 500; background: #78350f; color: #fcd34d; text-decoration: none; }
+  .pending-chip:hover { background: #92400e; }
   .inner-table { width: 100%; border-collapse: collapse; font-size: 0.9em; }
   .inner-table th { text-align: left; padding: 0.5em; border-bottom: 2px solid #2a2e3a; color: #9ca3af; font-weight: 500; }
   .inner-table td { padding: 0.5em; border-bottom: 1px solid #1a1e2a; }

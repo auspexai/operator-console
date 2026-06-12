@@ -32,6 +32,66 @@
   let actionLoading = $state(false);
   let live = $state(false);
 
+  // Account → tenants linkage (the reverse of the Tenants page's tenant→account
+  // view, completing the design's account ↔ tenants ↔ workers all-linkages
+  // picture). The tenants LIST response carries no account_id (operator-only
+  // field, exposed via the per-tenant linkage endpoint), so join client-side:
+  // list tenants, fetch each tenant's linkage, and bucket tenant_ids by
+  // account_id. Tenant count is small, so the fan-out is cheap. Best-effort
+  // enrichment: on failure render no linkage rather than failing the page
+  // (matching the detail page's receipt-stats/workers degrade).
+  let tenantsByAccount = $state<Record<string, string[]>>({});
+  let pendingAppsByAccount = $state<Record<string, number>>({});
+
+  async function loadLinkages(): Promise<void> {
+    try {
+      const [tenantsRes, appsRes] = await Promise.all([
+        fetch('/api/v0/proxy/tenants'),
+        fetch('/api/v0/proxy/tenant-applications'),
+      ]);
+
+      if (tenantsRes.ok) {
+        const body = await tenantsRes.json();
+        const tenants: { tenant_id: string }[] = body.tenants || body || [];
+        const linkages = await Promise.all(
+          tenants.map(async (t) => {
+            try {
+              const r = await fetch(`/api/v0/proxy/tenants/${encodeURIComponent(t.tenant_id)}/linkage`);
+              return r.ok ? ((await r.json()) as { tenant_id?: string; account_id?: string }) : null;
+            } catch {
+              return null;
+            }
+          }),
+        );
+        const byAccount: Record<string, string[]> = {};
+        for (const lk of linkages) {
+          if (lk && lk.account_id && lk.tenant_id) (byAccount[lk.account_id] ??= []).push(lk.tenant_id);
+        }
+        tenantsByAccount = byAccount;
+      }
+
+      // Section-level degrade: a coordinator without the tenant-applications
+      // routes yet shouldn't take down the tenant chips (or the page).
+      if (appsRes.ok) {
+        const apps: { account_id?: string; status?: string }[] = (await appsRes.json()).applications || [];
+        const counts: Record<string, number> = {};
+        for (const a of apps) {
+          if (a.status === 'pending' && a.account_id) counts[a.account_id] = (counts[a.account_id] ?? 0) + 1;
+        }
+        pendingAppsByAccount = counts;
+      }
+    } catch {
+      /* best-effort enrichment — keep whatever rendered last */
+    }
+  }
+
+  // The full visible surface: the accounts list + the account→tenant linkage
+  // overlay. Liveness tracks the accounts list (the linkage is best-effort).
+  async function refreshAll(silent = false): Promise<boolean> {
+    const [ok] = await Promise.all([loadAccounts(silent), loadLinkages()]);
+    return ok;
+  }
+
   let tierModal = $state<{
     accountId: string;
     action: 'promote' | 'demote';
@@ -134,12 +194,12 @@
   }
 
   onMount(() => {
-    loadAccounts().then((ok) => (live = ok));
+    refreshAll().then((ok) => (live = ok));
     // Poll is the truth, the SSE doorbell is a hint (M8 principle). The baseline
     // poll keeps tier/status current; receipt.issued nudges sooner because it can
     // auto-promote an account (T1→T2) in the background, shifting the tier badge.
     return autoRefresh({
-      refresh: () => loadAccounts(true),
+      refresh: () => refreshAll(true),
       setLive: (v) => (live = v),
       types: ['receipt.issued'],
     });
@@ -171,6 +231,7 @@
           <th>account_id</th>
           <th>identity</th>
           <th>tier</th>
+          <th>tenants</th>
           <th>created</th>
           <th>status</th>
           <th>actions</th>
@@ -185,6 +246,15 @@
               {acct.display_name || acct.idp_sub}
             </td>
             <td><span class="badge tier-{acct.trust_tier}">{tierNames[acct.trust_tier] ?? `T${acct.trust_tier}`}</span></td>
+            <td class="linkage-cell">
+              <!-- Empty for most volunteers — only researcher accounts carry tenants/applications. -->
+              {#each tenantsByAccount[acct.account_id] ?? [] as tid (tid)}
+                <a href="/tenants" class="tenant-chip mono">{tid}</a>
+              {/each}
+              {#if pendingAppsByAccount[acct.account_id]}
+                <a href="/requests" class="pending-chip" title="pending tenant application(s) — review on the requests page">{pendingAppsByAccount[acct.account_id]} pending app{pendingAppsByAccount[acct.account_id] === 1 ? '' : 's'}</a>
+              {/if}
+            </td>
             <td class="mono">{new Date(acct.created_at).toLocaleDateString()}</td>
             <td>
               {#if acct.retired_at}
@@ -323,6 +393,11 @@
   .errortext { color: #fca5a5; }
   .id-link { color: #a78bfa; text-decoration: none; }
   .id-link:hover { text-decoration: underline; }
+  .linkage-cell .tenant-chip { margin-right: 0.3em; }
+  .tenant-chip { display: inline-block; padding: 0.1em 0.55em; border-radius: 3px; font-size: 0.85em; font-weight: 500; background: #312e81; color: #c4b5fd; text-decoration: none; }
+  .tenant-chip:hover { background: #3730a3; }
+  .pending-chip { display: inline-block; padding: 0.1em 0.55em; border-radius: 3px; font-size: 0.85em; font-weight: 500; background: #78350f; color: #fcd34d; text-decoration: none; }
+  .pending-chip:hover { background: #92400e; }
   .actions { white-space: nowrap; }
   button { background: #1f2937; border: 1px solid #2a2e3a; color: #d4d4dc; padding: 0.25em 0.65em; border-radius: 4px; cursor: pointer; font: inherit; font-size: 0.85em; }
   button:hover { background: #2a2e3a; }
