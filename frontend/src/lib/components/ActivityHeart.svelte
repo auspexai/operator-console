@@ -65,10 +65,12 @@
 	const beating = $derived(activeWorkers > 0 && (sinceLastBeatMs == null || sinceLastBeatMs < 12000));
 	const idle = $derived(activeWorkers > 0 && !beating);
 
+	// State-led — the worker COUNT lives in the vitals (with its dot), so the
+	// line speaks to what the fleet is DOING, not how many are connected.
 	const narration = $derived.by(() => {
 		if (online === false) return 'coordinator unreachable';
 		if (flatlined) return 'no workers connected — the fleet is dark';
-		const parts: string[] = [`${activeWorkers} worker${activeWorkers === 1 ? '' : 's'} active`];
+		const parts: string[] = [];
 		if (runningExperiments > 0)
 			parts.push(`${runningExperiments} experiment${runningExperiments === 1 ? '' : 's'} running`);
 		if (lastBeatT != null) parts.push(`last completion ${ago(sinceLastBeatMs)}`);
@@ -109,7 +111,7 @@
 		</span>
 		<span class="vital">
 			<i class="dot" class:ok={activeWorkers > 0} class:down={flatlined}></i>
-			{activeWorkers} active
+			{activeWorkers} worker{activeWorkers === 1 ? '' : 's'}
 		</span>
 		{#if holds > 0}
 			<span class="vital warn">{holds} on hold</span>
