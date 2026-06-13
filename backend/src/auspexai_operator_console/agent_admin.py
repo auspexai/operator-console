@@ -129,13 +129,22 @@ def build_router(config: OperatorConsoleConfig) -> APIRouter:
             raise HTTPException(
                 status_code=409, detail="assessment agent not installed on this host"
             )
-        text = path.read_text(encoding="utf-8")
-        line = f"ASSESSMENT_MAX_DRAFTS_PER_TICK={body.max_drafts_per_tick}"
-        if re.search(r"^ASSESSMENT_MAX_DRAFTS_PER_TICK=.*$", text, flags=re.M):
-            text = re.sub(r"^ASSESSMENT_MAX_DRAFTS_PER_TICK=.*$", line, text, flags=re.M)
-        else:
-            text = text.rstrip("\n") + f"\n{line}\n"
-        path.write_text(text, encoding="utf-8")
+        try:
+            text = path.read_text(encoding="utf-8")
+            line = f"ASSESSMENT_MAX_DRAFTS_PER_TICK={body.max_drafts_per_tick}"
+            if re.search(r"^ASSESSMENT_MAX_DRAFTS_PER_TICK=.*$", text, flags=re.M):
+                text = re.sub(r"^ASSESSMENT_MAX_DRAFTS_PER_TICK=.*$", line, text, flags=re.M)
+            else:
+                text = text.rstrip("\n") + f"\n{line}\n"
+            path.write_text(text, encoding="utf-8")
+        except OSError as e:
+            # Most likely a read-only filesystem: ProtectSystem=strict mounts /etc
+            # read-only, so the env dir needs a ReadWritePaths carve-out. Surface a
+            # clear 503 instead of an unhandled 500.
+            raise HTTPException(
+                status_code=503,
+                detail=f"could not write the agent env file {path}: {e.strerror or e}",
+            ) from e
         return {"ok": True, "max_drafts_per_tick": body.max_drafts_per_tick}
 
     return router

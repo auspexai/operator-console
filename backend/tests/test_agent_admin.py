@@ -99,6 +99,22 @@ def test_cap_update_round_trips_and_preserves_file(
     assert authed_client.get("/api/v0/agent/assessment").json()["max_drafts_per_tick"] == 9
 
 
+def test_cap_write_failure_returns_503_not_500(
+    authed_client: TestClient, tmp_path: Path, monkeypatch
+) -> None:
+    # Read-only filesystem (ProtectSystem=strict without a ReadWritePaths
+    # carve-out): the write OSErrors — surface a clean 503, never a raw 500.
+    _env_file(tmp_path, monkeypatch, "ANTHROPIC_API_KEY=\n")
+
+    def boom(self: Path, *a: object, **k: object) -> None:
+        raise OSError(30, "Read-only file system")
+
+    monkeypatch.setattr(Path, "write_text", boom)
+    r = authed_client.post("/api/v0/agent/assessment/cap", json={"max_drafts_per_tick": 0})
+    assert r.status_code == 503
+    assert "env file" in r.json()["detail"]
+
+
 def test_cap_validation(authed_client: TestClient, tmp_path: Path, monkeypatch) -> None:
     _env_file(tmp_path, monkeypatch, "ANTHROPIC_API_KEY=\n")
     assert (
