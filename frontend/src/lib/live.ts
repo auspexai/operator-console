@@ -87,13 +87,28 @@ export type AutoRefreshOptions = {
 export function autoRefresh(opts: AutoRefreshOptions): () => void {
   const { refresh, setLive, types = [], intervalMs = 30_000, eventFilter } = opts;
   let stopped = false;
+  // Debounce the stale flip: a single failed refresh (e.g. a few-second
+  // coordinator restart, or the SSE dropping + reconnecting through it) keeps
+  // the last "live" state rather than flashing stale. Only FAIL_THRESHOLD
+  // consecutive misses surface stale — so a routine deploy reads as a brief
+  // reconnect, not an outage.
+  const FAIL_THRESHOLD = 2;
+  let fails = 0;
   const tick = async () => {
     if (stopped) return;
+    let ok = false;
     try {
-      setLive(await refresh());
+      ok = await refresh();
     } catch {
+      ok = false;
+    }
+    if (ok) {
+      fails = 0;
+      setLive(true);
+    } else if (++fails >= FAIL_THRESHOLD) {
       setLive(false);
     }
+    // exactly one transient miss → hold the prior live state (no stale flash)
   };
   const timer: ReturnType<typeof setInterval> = setInterval(tick, intervalMs);
   let unsub: () => void = () => {};
