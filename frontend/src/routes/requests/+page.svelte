@@ -109,8 +109,10 @@
     timer_active?: boolean;
   };
   let agent = $state<AgentStatus | null>(null);
-  let capDraft = $state('');
+  let capDraft = $state('5');
   let capSaving = $state(false);
+  let lastOnCap = $state(5); // restore-to value when drafting is toggled back ON
+  let draftingOn = $derived(!!agent && (agent.max_drafts_per_tick ?? 0) > 0);
 
   // §9 #48: the experiment-assessment agent (the auto-approval ENGINE, rage-local)
   // and the GATE (coordinator-authoritative). The engine triages; the gate decides
@@ -150,28 +152,45 @@
       const r = await fetch('/api/v0/agent/assessment');
       if (r.ok) {
         agent = await r.json();
-        if (agent?.max_drafts_per_tick != null) capDraft = String(agent.max_drafts_per_tick);
+        const cap = agent?.max_drafts_per_tick ?? 0;
+        if (cap > 0) {
+          lastOnCap = cap;
+          capDraft = String(cap);
+        }
       }
     } catch {
       /* agent card is best-effort */
     }
   }
 
-  async function saveCap() {
+  async function setCap(n: number) {
     capSaving = true;
     try {
       const r = await fetch('/api/v0/agent/assessment/cap', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ max_drafts_per_tick: Number(capDraft) }),
+        body: JSON.stringify({ max_drafts_per_tick: n }),
       });
       if (!r.ok) throw new Error(`HTTP ${r.status}`);
       await loadAgent();
     } catch (e) {
-      alert(`cap update failed: ${(e as Error).message}`);
+      alert(`update failed: ${(e as Error).message}`);
     } finally {
       capSaving = false;
     }
+  }
+
+  // The ON/OFF switch IS the spend control: OFF sets the cap to 0 (the agent
+  // drafts nothing → no LLM call → $0); ON restores the last non-zero cap.
+  function toggleDrafting() {
+    setCap(draftingOn ? 0 : lastOnCap || 5);
+  }
+
+  function saveCap() {
+    const n = Math.max(1, Math.min(100, Number(capDraft) || 1));
+    lastOnCap = n;
+    capDraft = String(n);
+    setCap(n);
   }
 
   async function loadExpAgent() {
@@ -638,56 +657,66 @@
       </table>
     {/if}
 
-    <!-- Assessment agent (rage-local ops tooling; session-gated admin) -->
-    {#if agent}
-      <h2 class="section">Assessment agent</h2>
-      {#if !agent.installed}
-        <p class="muted">Not installed on this host.</p>
-      {:else}
-        <p class="muted">
-          {#if agent.timer_active}<span class="badge ratified">timer active</span>{:else}<span class="badge status-declined">timer inactive</span>{/if}
-          <span class="badge">{agent.model}</span>
-          {#if agent.api_key_present}<span class="badge ratified">API key set</span>{:else}<span class="badge draft">no API key — drafts paused (logs-and-skips)</span>{/if}
-          <label class="cap-label">spend cap (drafts/tick):
-            <input class="cap-input" type="number" min="0" max="100" bind:value={capDraft} />
-          </label>
-          <button onclick={saveCap} disabled={capSaving || capDraft === String(agent.max_drafts_per_tick)}>save</button>
-          <span class="muted">≈ ${(Number(capDraft || 0) * 0.15).toFixed(2)} worst-case per tick @ ~$0.15/draft</span>
-        </p>
-      {/if}
-    {/if}
+    <!-- Agents: cost-bearing control front and center -->
+    {#if agent || gate}
+      <h2 class="section">Agents</h2>
 
-    <!-- §9 #48: Experiment-assessment agent — the auto-approval ENGINE + GATE -->
-    {#if expAgent || gate}
-      <h2 class="section">Experiment-assessment agent</h2>
-      <p class="muted">
-        {#if expAgent?.installed}
-          {#if expAgent.timer_active}<span class="badge ratified">engine: timer active</span>{:else}<span class="badge status-declined">engine: timer inactive</span>{/if}
-        {:else}
-          <span class="badge draft">engine: not installed on this host</span>
-        {/if}
-        {#if gate}
-          {#if gate.enabled}<span class="badge ratified">auto-approval ON (≥ T{gate.min_tier})</span>{:else}<span class="badge status-declined">auto-approval OFF</span>{/if}
-        {/if}
-      </p>
+      <!-- Software-request drafting — the ONLY agent that spends money -->
+      {#if agent}
+        <div class="agent">
+          <div class="agent-top">
+            <span class="agent-name">Software-request drafting</span>
+            <span class="agent-tag spend">costs money{#if agent.model} · {agent.model}{/if}</span>
+          </div>
+          {#if !agent.installed}
+            <span class="muted">Not installed on this host.</span>
+          {:else}
+            <div class="agent-ctl">
+              <button
+                class="switch {draftingOn ? 'on' : 'off'}"
+                onclick={toggleDrafting}
+                disabled={capSaving}
+                aria-pressed={draftingOn}
+              >{draftingOn ? 'ON' : 'OFF'}</button>
+              {#if draftingOn}
+                <label class="cap-label">max
+                  <input
+                    class="cap-input"
+                    type="number"
+                    min="1"
+                    max="100"
+                    bind:value={capDraft}
+                    onchange={saveCap}
+                  />
+                  drafts/tick</label>
+                <span class="cost">≈ ${(Number(capDraft || 0) * 0.15).toFixed(2)}/tick max</span>
+              {:else}
+                <span class="cost zero">$0 — off</span>
+              {/if}
+            </div>
+            {#if !agent.api_key_present}<div class="agent-warn">no API key on host — won't draft (no spend) until one is set</div>{/if}
+            {#if !agent.timer_active}<div class="agent-warn">service not running on host</div>{/if}
+          {/if}
+        </div>
+      {/if}
+
+      <!-- Experiment auto-approval — mechanical, NO cost -->
       {#if gate}
-        <p class="muted">
-          <label class="cap-label">auto-approval:
+        <div class="agent">
+          <div class="agent-top">
+            <span class="agent-name">Experiment auto-approval</span>
+            <span class="agent-tag free">no cost · no LLM{#if expAgent} · engine {expAgent.timer_active ? 'running' : 'stopped'}{/if}</span>
+          </div>
+          <div class="agent-ctl">
             <select class="cap-input gate-select" bind:value={gateChoice}>
-              <option value="off">Off — every experiment → review</option>
-              <option value="t2">On — require ≥ T2</option>
-              <option value="t3">On — require ≥ T3</option>
+              <option value="off">Off</option>
+              <option value="t2">On · require ≥ T2</option>
+              <option value="t3">On · require ≥ T3</option>
             </select>
-          </label>
-          <input class="reason-input" type="text" placeholder="reason (required)" bind:value={gateReason} />
-          <button onclick={saveGate} disabled={gateSaving || !gateReason.trim() || gateChoice === gateSaved}>save</button>
-        </p>
-        <p class="muted note">
-          Off doesn't stop the engine — experiments are still auto-<em>triaged</em>
-          (classified + envelope-checked) into the review queue; they just aren't
-          auto-<em>approved</em>. Elevated-ethics and sub-tier never auto-approve regardless.
-          {#if gate.updated_by}<br />last changed by {gate.updated_by}{#if gate.update_reason} — "{gate.update_reason}"{/if}.{/if}
-        </p>
+            <input class="reason-input" type="text" placeholder="reason" bind:value={gateReason} />
+            <button onclick={saveGate} disabled={gateSaving || !gateReason.trim() || gateChoice === gateSaved}>save</button>
+          </div>
+        </div>
       {/if}
     {/if}
 
@@ -836,11 +865,26 @@
   button.primary { background: #a78bfa; color: #0a0e1a; border-color: #a78bfa; font-weight: 600; }
   button.danger { background: #7f1d1d; border-color: #7f1d1d; color: #fca5a5; }
   button.inline { margin-left: 0.75em; }
-  .cap-label { margin-left: 0.75em; color: #9ca3af; }
-  .cap-input { width: 4.5em; background: #0a0e1a; border: 1px solid #2a2e3a; border-radius: 4px; color: #d4d4dc; padding: 0.2em 0.4em; font: inherit; margin-left: 0.3em; }
-  .gate-select { width: auto; }
-  .reason-input { width: 18em; max-width: 50%; background: #0a0e1a; border: 1px solid #2a2e3a; border-radius: 4px; color: #d4d4dc; padding: 0.2em 0.4em; font: inherit; margin-left: 0.5em; }
-  .note { margin-top: 0.35em; line-height: 1.4; max-width: 60em; }
+  .cap-label { color: #9ca3af; }
+  .cap-input { width: 4.5em; background: #0a0e1a; border: 1px solid #2a2e3a; border-radius: 4px; color: #d4d4dc; padding: 0.2em 0.4em; font: inherit; margin: 0 0.3em; }
+  .gate-select { width: auto; margin: 0; }
+  .reason-input { width: 16em; max-width: 40%; background: #0a0e1a; border: 1px solid #2a2e3a; border-radius: 4px; color: #d4d4dc; padding: 0.2em 0.4em; font: inherit; }
+
+  /* Agents block — cost control front and center */
+  .agent { margin: 0.6em 0 0.9em; }
+  .agent-top { display: flex; align-items: baseline; gap: 0.6em; }
+  .agent-name { font-weight: 600; color: #d4d4dc; }
+  .agent-tag { font-size: 0.8em; padding: 0.05em 0.5em; border-radius: 3px; }
+  .agent-tag.spend { background: #3a2a14; color: #fbbf24; border: 1px solid #b45309; }
+  .agent-tag.free { background: #1a2e22; color: #6ee7a0; border: 1px solid #15803d; }
+  .agent-ctl { display: flex; align-items: center; gap: 0.55em; margin-top: 0.4em; flex-wrap: wrap; }
+  .switch { min-width: 3.4em; font-weight: 700; letter-spacing: 0.04em; border: none; border-radius: 5px; padding: 0.3em 0.7em; cursor: pointer; }
+  .switch.on { background: #15803d; color: #eafff1; }
+  .switch.off { background: #4b1d1d; color: #fca5a5; }
+  .switch:disabled { opacity: 0.6; cursor: default; }
+  .cost { color: #9ca3af; font-variant-numeric: tabular-nums; }
+  .cost.zero { color: #6ee7a0; }
+  .agent-warn { margin-top: 0.3em; color: #fbbf24; font-size: 0.9em; }
   a { color: #a78bfa; }
   .modal-backdrop { position: fixed; inset: 0; background: rgba(0, 0, 0, 0.6); z-index: 10; }
   .modal { position: fixed; top: 50%; left: 50%; transform: translate(-50%, -50%); background: #1a1e2a; border: 1px solid #2a2e3a; border-radius: 8px; padding: 1.5em; z-index: 11; width: 90%; max-width: 460px; max-height: 85vh; overflow-y: auto; }
