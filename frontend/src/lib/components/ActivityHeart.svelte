@@ -107,7 +107,7 @@
 	<div class="vitals">
 		<span class="vital" class:bad={online === false}>
 			<i class="dot" class:ok={online === true} class:down={online === false}></i>
-			coordinator {online === false ? 'unreachable' : 'up'}
+			coordinator {online === false ? 'unreachable' : online === true ? 'up' : 'checking…'}
 		</span>
 		<span class="vital">
 			<i class="dot" class:ok={activeWorkers > 0} class:down={flatlined}></i>
