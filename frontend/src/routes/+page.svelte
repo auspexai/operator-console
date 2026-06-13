@@ -2,6 +2,7 @@
   import { onMount } from 'svelte';
   import Nav from '$lib/components/Nav.svelte';
   import LiveDot from '$lib/components/LiveDot.svelte';
+  import ActivityHeart from '$lib/components/ActivityHeart.svelte';
   import { autoRefresh } from '$lib/live';
 
   type CoordStatus = {
@@ -232,6 +233,17 @@
   );
   let fleetVersions = $derived(
     [...new Set(activeFleet.map((w) => w.capabilities?.worker_version).filter(Boolean))] as string[],
+  );
+
+  // Ops heart (surface_liveness_and_activity_view_design.md): fleet throughput
+  // pulse = units completed network-wide (summed across scheduler experiments),
+  // plus the vitals the maintainer triages on.
+  let fleetCompleted = $derived(schedExps.reduce((s, e) => s + (e.completed ?? 0), 0));
+  let reviewCount = $derived(
+    pendingApprovals.length +
+      pendingRequests.length +
+      pendingSoftware.length +
+      pendingApplications.length,
   );
   let versionMismatch = $derived(fleetVersions.length > 1);
 
@@ -743,6 +755,15 @@
     {:else if triageError}
       <p class="errortext">Failed to load: {triageError}</p>
     {:else}
+      <ActivityHeart
+        pulseTotal={fleetCompleted}
+        activeWorkers={onlineCount}
+        holds={holds.length}
+        runningExperiments={runningExps.length}
+        awaitingReview={reviewCount}
+        online={health?.coord?.reachable ?? null}
+      />
+
       <div class="needs-header">
         {#if needsCount === 0}
           <h2 class="needs-none">Nothing needs you. <LiveDot live={triageLive} /></h2>
