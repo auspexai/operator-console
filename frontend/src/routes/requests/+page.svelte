@@ -112,6 +112,30 @@
   let capDraft = $state('');
   let capSaving = $state(false);
 
+  // §9 #48: the experiment-assessment agent (the auto-approval ENGINE, rage-local)
+  // and the GATE (coordinator-authoritative). The engine triages; the gate decides
+  // whether routine experiments clear without a click. Off = review-only.
+  type ExpAgentStatus = {
+    installed: boolean;
+    timer_active?: boolean;
+    timer_next?: string | null;
+    last_run_exit?: string | null;
+  };
+  type GatePolicy = {
+    enabled: boolean;
+    min_tier: number;
+    updated_at?: string | null;
+    updated_by?: string | null;
+    update_reason?: string | null;
+  };
+  let expAgent = $state<ExpAgentStatus | null>(null);
+  let gate = $state<GatePolicy | null>(null);
+  let gateChoice = $state('off'); // 'off' | 't2' | 't3'
+  let gateReason = $state('');
+  let gateSaving = $state(false);
+  // The select value that reflects the currently-saved gate (to disable a no-op save).
+  let gateSaved = $derived(gate ? (gate.enabled ? (gate.min_tier >= 3 ? 't3' : 't2') : 'off') : 'off');
+
   // The assessment agent folds its baseline-classification verdict into the
   // front of the summary as "[VERDICT] evidence — ...". Surface it as a chip
   // so the maintainer sees new-vs-covered at a glance without expanding.
@@ -147,6 +171,51 @@
       alert(`cap update failed: ${(e as Error).message}`);
     } finally {
       capSaving = false;
+    }
+  }
+
+  async function loadExpAgent() {
+    try {
+      const r = await fetch('/api/v0/agent/experiment-assessment');
+      if (r.ok) expAgent = await r.json();
+    } catch {
+      /* engine card is best-effort */
+    }
+  }
+
+  async function loadGate() {
+    try {
+      const r = await fetch('/api/v0/proxy/assessment-policy');
+      if (r.ok) {
+        gate = await r.json();
+        gateChoice = gateSaved;
+      }
+    } catch {
+      /* gate card is best-effort */
+    }
+  }
+
+  async function saveGate() {
+    if (!gateReason.trim()) {
+      alert('A reason is required to change the auto-approval gate.');
+      return;
+    }
+    const enabled = gateChoice !== 'off';
+    const min_tier = gateChoice === 't3' ? 3 : 2;
+    gateSaving = true;
+    try {
+      const r = await fetch('/api/v0/proxy/assessment-policy', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ enabled, min_tier, reason: gateReason.trim() }),
+      });
+      if (!r.ok) throw new Error(`HTTP ${r.status}`);
+      gateReason = '';
+      await loadGate();
+    } catch (e) {
+      alert(`gate update failed: ${(e as Error).message}`);
+    } finally {
+      gateSaving = false;
     }
   }
 
@@ -368,6 +437,8 @@
   onMount(() => {
     loadAll().then((ok) => (live = ok));
     loadAgent();
+    loadExpAgent();
+    loadGate();
     return autoRefresh({
       refresh: () => loadAll(true),
       setLive: (v) => (live = v),
@@ -586,6 +657,40 @@
       {/if}
     {/if}
 
+    <!-- §9 #48: Experiment-assessment agent — the auto-approval ENGINE + GATE -->
+    {#if expAgent || gate}
+      <h2 class="section">Experiment-assessment agent</h2>
+      <p class="muted">
+        {#if expAgent?.installed}
+          {#if expAgent.timer_active}<span class="badge ratified">engine: timer active</span>{:else}<span class="badge status-declined">engine: timer inactive</span>{/if}
+        {:else}
+          <span class="badge draft">engine: not installed on this host</span>
+        {/if}
+        {#if gate}
+          {#if gate.enabled}<span class="badge ratified">auto-approval ON (≥ T{gate.min_tier})</span>{:else}<span class="badge status-declined">auto-approval OFF</span>{/if}
+        {/if}
+      </p>
+      {#if gate}
+        <p class="muted">
+          <label class="cap-label">auto-approval:
+            <select class="cap-input gate-select" bind:value={gateChoice}>
+              <option value="off">Off — every experiment → review</option>
+              <option value="t2">On — require ≥ T2</option>
+              <option value="t3">On — require ≥ T3</option>
+            </select>
+          </label>
+          <input class="reason-input" type="text" placeholder="reason (required)" bind:value={gateReason} />
+          <button onclick={saveGate} disabled={gateSaving || !gateReason.trim() || gateChoice === gateSaved}>save</button>
+        </p>
+        <p class="muted note">
+          Off doesn't stop the engine — experiments are still auto-<em>triaged</em>
+          (classified + envelope-checked) into the review queue; they just aren't
+          auto-<em>approved</em>. Elevated-ethics and sub-tier never auto-approve regardless.
+          {#if gate.updated_by}<br />last changed by {gate.updated_by}{#if gate.update_reason} — "{gate.update_reason}"{/if}.{/if}
+        </p>
+      {/if}
+    {/if}
+
   {/if}
 
   {#if assessModal}
@@ -733,6 +838,9 @@
   button.inline { margin-left: 0.75em; }
   .cap-label { margin-left: 0.75em; color: #9ca3af; }
   .cap-input { width: 4.5em; background: #0a0e1a; border: 1px solid #2a2e3a; border-radius: 4px; color: #d4d4dc; padding: 0.2em 0.4em; font: inherit; margin-left: 0.3em; }
+  .gate-select { width: auto; }
+  .reason-input { width: 18em; max-width: 50%; background: #0a0e1a; border: 1px solid #2a2e3a; border-radius: 4px; color: #d4d4dc; padding: 0.2em 0.4em; font: inherit; margin-left: 0.5em; }
+  .note { margin-top: 0.35em; line-height: 1.4; max-width: 60em; }
   a { color: #a78bfa; }
   .modal-backdrop { position: fixed; inset: 0; background: rgba(0, 0, 0, 0.6); z-index: 10; }
   .modal { position: fixed; top: 50%; left: 50%; transform: translate(-50%, -50%); background: #1a1e2a; border: 1px solid #2a2e3a; border-radius: 8px; padding: 1.5em; z-index: 11; width: 90%; max-width: 460px; max-height: 85vh; overflow-y: auto; }

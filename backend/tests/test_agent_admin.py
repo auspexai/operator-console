@@ -48,6 +48,37 @@ def test_status_not_installed(authed_client: TestClient, tmp_path: Path, monkeyp
     assert authed_client.get("/api/v0/agent/assessment").json() == {"installed": False}
 
 
+# ---- §9 #48: experiment-assessment agent (the auto-approval ENGINE) ---------
+
+
+def test_experiment_assessment_requires_session(client: TestClient) -> None:
+    assert client.get("/api/v0/agent/experiment-assessment").status_code == 401
+
+
+def test_experiment_assessment_not_installed(authed_client: TestClient, monkeypatch) -> None:
+    # Units not loaded → not-installed/inactive (never crashes). Monkeypatched so
+    # the result is host-independent (rage itself may have the unit installed).
+    monkeypatch.setattr("auspexai_operator_console.agent_admin._systemd_state", lambda unit: {})
+    body = authed_client.get("/api/v0/agent/experiment-assessment").json()
+    assert body["installed"] is False
+    assert body["timer_active"] is False
+    # Exposes only ENGINE state — no env/key fields (the gate lives coord-side).
+    assert set(body) == {"installed", "timer_active", "timer_next", "last_run_exit"}
+
+
+def test_experiment_assessment_active(authed_client: TestClient, monkeypatch) -> None:
+    def fake_state(unit: str) -> dict[str, str]:
+        if unit.endswith(".timer"):
+            return {"LoadState": "loaded", "ActiveState": "active", "NextElapseUSecRealtime": "123"}
+        return {"ExecMainStatus": "0"}
+
+    monkeypatch.setattr("auspexai_operator_console.agent_admin._systemd_state", fake_state)
+    body = authed_client.get("/api/v0/agent/experiment-assessment").json()
+    assert body["installed"] is True
+    assert body["timer_active"] is True
+    assert body["last_run_exit"] == "0"
+
+
 def test_cap_update_round_trips_and_preserves_file(
     authed_client: TestClient, tmp_path: Path, monkeypatch
 ) -> None:

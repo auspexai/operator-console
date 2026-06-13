@@ -166,6 +166,17 @@ def build_router(config) -> APIRouter:
     async def get_experiment(request: Request, experiment_id: str) -> Any:
         return await _proxy_get(f"/api/v0/experiments/{experiment_id}", _headers(request))
 
+    # §9 #48 inc-4: the auto-approval gate (coordinator-authoritative). The
+    # console reads/writes it; `decide()` reads it at decision time.
+    @router.get("/assessment-policy")
+    async def get_assessment_policy(request: Request) -> Any:
+        return await _proxy_get("/api/v0/assessment-policy", _headers(request))
+
+    @router.post("/assessment-policy")
+    async def set_assessment_policy(request: Request) -> Any:
+        body = await request.json()
+        return await _proxy_post("/api/v0/assessment-policy", _headers(request), body)
+
     @router.get("/experiments/{experiment_id}/work-units")
     async def list_work_units(request: Request, experiment_id: str) -> Any:
         return await _proxy_get(

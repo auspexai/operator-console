@@ -24,6 +24,38 @@ def test_workers_requires_session(client: TestClient) -> None:
     assert client.get("/api/v0/proxy/workers").status_code == 401
 
 
+def test_assessment_policy_requires_session(client: TestClient) -> None:
+    assert client.get("/api/v0/proxy/assessment-policy").status_code == 401
+    assert client.post("/api/v0/proxy/assessment-policy", json={}).status_code == 401
+
+
+# ---- §9 #48 inc-4 auto-approval gate (coordinator-authoritative) ------------
+
+
+@respx.mock
+def test_assessment_policy_get_forwards(authed_client: TestClient) -> None:
+    respx.get(f"{COORD_URL}/api/v0/assessment-policy").mock(
+        return_value=httpx.Response(200, json={"enabled": False, "min_tier": 2})
+    )
+    r = authed_client.get("/api/v0/proxy/assessment-policy")
+    assert r.status_code == 200 and r.json()["enabled"] is False
+
+
+@respx.mock
+def test_assessment_policy_post_forwards_body(authed_client: TestClient) -> None:
+    route = respx.post(f"{COORD_URL}/api/v0/assessment-policy").mock(
+        return_value=httpx.Response(200, json={"enabled": True, "min_tier": 3})
+    )
+    r = authed_client.post(
+        "/api/v0/proxy/assessment-policy",
+        json={"enabled": True, "min_tier": 3, "reason": "turn autonomy on"},
+    )
+    assert r.status_code == 200 and r.json()["min_tier"] == 3
+    sent = route.calls.last.request
+    assert b"turn autonomy on" in sent.content
+    assert sent.headers.get("Authorization") == "Bearer test-service-token"
+
+
 # ---- authed REST forward (trusted-proxy attribution reaches the coordinator) -
 
 

@@ -33,6 +33,12 @@ DEFAULT_ENV_PATH = "/etc/auspexai/assessment-agent.env"
 TIMER_UNIT = "auspexai-assessment-agent.timer"
 SERVICE_UNIT = "auspexai-assessment-agent.service"
 
+# §9 #48: the experiment-assessment agent (the auto-approval ENGINE). The GATE
+# itself is coordinator state (read via the proxy /assessment-policy); this
+# module only reports whether the rage-local engine timer is running.
+EXP_TIMER_UNIT = "auspexai-experiment-assessment-agent.timer"
+EXP_SERVICE_UNIT = "auspexai-experiment-assessment-agent.service"
+
 
 class CapUpdate(BaseModel):
     max_drafts_per_tick: int = Field(ge=0, le=100)
@@ -62,7 +68,7 @@ def _systemd_state(unit: str) -> dict[str, str]:
                 "systemctl",
                 "show",
                 unit,
-                "--property=ActiveState,SubState,NextElapseUSecRealtime,ExecMainStatus",
+                "--property=LoadState,ActiveState,SubState,NextElapseUSecRealtime,ExecMainStatus",
             ],
             capture_output=True,
             text=True,
@@ -91,6 +97,25 @@ def build_router(config: OperatorConsoleConfig) -> APIRouter:
             # NEVER echo the key — presence only.
             "api_key_present": bool(env.get("ANTHROPIC_API_KEY")),
             "max_drafts_per_tick": int(env.get("ASSESSMENT_MAX_DRAFTS_PER_TICK", "5") or 5),
+            "timer_active": timer.get("ActiveState") == "active",
+            "timer_next": timer.get("NextElapseUSecRealtime") or None,
+            "last_run_exit": service.get("ExecMainStatus") or None,
+        }
+
+    @router.get("/experiment-assessment")
+    async def experiment_assessment_status(request: Request) -> dict[str, Any]:
+        """§9 #48 — the experiment-assessment agent (the auto-approval ENGINE).
+
+        Rage-local systemd timer; reports only whether the engine runs. The
+        auto-approval GATE itself is coordinator state — the console reads/writes
+        it via the proxy `/assessment-policy`, NOT here. No env file: this agent
+        is mechanical (no LLM/API key), so there's nothing local to tune."""
+        require_session(request)
+        timer = _systemd_state(EXP_TIMER_UNIT)
+        service = _systemd_state(EXP_SERVICE_UNIT)
+        installed = timer.get("LoadState") == "loaded"
+        return {
+            "installed": installed,
             "timer_active": timer.get("ActiveState") == "active",
             "timer_next": timer.get("NextElapseUSecRealtime") or None,
             "last_run_exit": service.get("ExecMainStatus") or None,
