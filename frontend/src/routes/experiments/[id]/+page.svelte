@@ -19,6 +19,13 @@
     max_units: number | null;
     max_concurrent_assignments: number | null;
     max_payload_bytes: number | null;
+    // §9 #48 admission-assessment provenance.
+    research_class: string | null;
+    assessment_decision: string | null;
+    assessment_tier: number | null;
+    assessment_rationale: string | null;
+    assessment_envelope: { name: string; passed: boolean; detail: string }[] | null;
+    assessed_by: string | null;
     // M-Results retention (O-M8). TTLs + projection are OPERATOR_ONLY.
     retention_hold: boolean | null;
     retention_hold_reason: string | null;
@@ -306,6 +313,33 @@
       </dl>
     </section>
 
+    {#if experiment.assessment_decision}
+      <section class="card">
+        <h2>Assessment <span class="muted small">§9 #48</span></h2>
+        <dl>
+          <dt>decision</dt>
+          <dd><span class="badge assess-{experiment.assessment_decision}">{experiment.assessment_decision}</span></dd>
+          {#if experiment.research_class}<dt>research class</dt><dd class="mono">{experiment.research_class}</dd>{/if}
+          {#if experiment.assessment_tier != null}<dt>tenant tier</dt><dd>T{experiment.assessment_tier}</dd>{/if}
+          {#if experiment.assessment_rationale}<dt>rationale</dt><dd>{experiment.assessment_rationale}</dd>{/if}
+          {#if experiment.assessed_by}<dt>assessed by</dt><dd class="mono">{experiment.assessed_by}</dd>{/if}
+        </dl>
+        {#if experiment.assessment_envelope?.length}
+          <table class="envelope">
+            <tbody>
+              {#each experiment.assessment_envelope as c}
+                <tr>
+                  <td>{c.passed ? '✓' : '✗'}</td>
+                  <td class="mono">{c.name}</td>
+                  <td class="muted small">{c.detail}</td>
+                </tr>
+              {/each}
+            </tbody>
+          </table>
+        {/if}
+      </section>
+    {/if}
+
     {#if experiment.max_unit_duration_seconds || experiment.max_units || experiment.max_concurrent_assignments || experiment.max_payload_bytes}
       <section class="card">
         <h2>Resource bounds</h2>
@@ -538,6 +572,12 @@
   .mono { font-family: ui-monospace, monospace; font-size: 0.85em; word-break: break-all; }
   .badge { display: inline-block; padding: 0.1em 0.55em; border-radius: 3px; font-size: 0.85em; font-weight: 500; background: #2a2e3a; color: #9ca3af; }
   .badge.ok { background: #14532d; color: #86efac; }
+  .badge.assess-auto { background: #14532d; color: #86efac; }
+  .badge.assess-review { background: #854d0e; color: #fde68a; }
+  .small { font-size: 0.82em; }
+  table.envelope { width: 100%; border-collapse: collapse; margin-top: 0.5em; font-size: 0.85em; }
+  table.envelope td { padding: 0.2em 0.5em; border-bottom: 1px solid #1a1e2a; vertical-align: top; }
+  table.envelope td:first-child { width: 1.4em; }
   .pending-badge { background: #854d0e; color: #fde68a; }
   .paused-badge { background: #1e3a5f; color: #93c5fd; }
   .completed-badge { background: #14532d; color: #86efac; }

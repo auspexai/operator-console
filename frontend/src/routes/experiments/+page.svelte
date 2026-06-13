@@ -4,6 +4,7 @@
   import { autoRefresh } from '$lib/live';
   import LiveDot from '$lib/components/LiveDot.svelte';
 
+  type EnvelopeCheck = { name: string; passed: boolean; detail: string };
   type Experiment = {
     experiment_id: string;
     tenant_id: string;
@@ -17,9 +18,35 @@
     max_units: number | null;
     max_concurrent_assignments: number | null;
     max_payload_bytes: number | null;
+    // §9 #48 assessment provenance (class-by-tier auto-approval).
+    research_class: string | null;
+    assessment_decision: string | null; // 'auto' | 'review'
+    assessment_tier: number | null;
+    assessment_rationale: string | null;
+    assessment_envelope: EnvelopeCheck[] | null;
+    assessed_by: string | null;
   };
 
+  // The maintainer's work-list framing: submitted + decision=review = the human
+  // review queue; auto-approved is the overridable stream (pause/abort below).
+  const envFails = (e: Experiment) =>
+    (e.assessment_envelope ?? []).filter((c) => !c.passed).map((c) => c.name);
+  const assessmentTitle = (e: Experiment) =>
+    [
+      e.assessment_rationale,
+      e.assessment_tier != null ? `tier T${e.assessment_tier}` : null,
+      e.assessed_by ? `by ${e.assessed_by}` : null,
+      envFails(e).length ? `failed: ${envFails(e).join(', ')}` : null,
+    ]
+      .filter(Boolean)
+      .join(' · ');
+
   let experiments = $state<Experiment[]>([]);
+  // §9 #48 review queue = submitted experiments the agent/endpoint routed to a
+  // human (decision=review). The maintainer's work-list.
+  const reviewQueue = $derived(
+    experiments.filter((e) => e.status === 'submitted' && e.assessment_decision === 'review').length
+  );
   let loading = $state(true);
   let error = $state<string | null>(null);
   let live = $state(false);
@@ -154,6 +181,7 @@
           <th>experiment_id</th>
           <th>tenant</th>
           <th>status</th>
+          <th>assessment</th>
           <th>integrity</th>
           <th>submitted</th>
           <th>actions</th>
@@ -165,6 +193,14 @@
             <td class="mono"><a href="/experiments/{exp.experiment_id}" class="id-link">{exp.experiment_id}</a></td>
             <td class="mono">{exp.tenant_id}</td>
             <td><span class="badge {statusBadge[exp.status] ?? ''}">{exp.status}</span></td>
+            <td title={assessmentTitle(exp)}>
+              {#if exp.assessment_decision}
+                <span class="badge assess-{exp.assessment_decision}">{exp.assessment_decision}</span>
+                {#if exp.research_class}<span class="rclass">{exp.research_class}</span>{/if}
+              {:else}
+                <span class="muted">—</span>
+              {/if}
+            </td>
             <td>{exp.integrity_policy ?? 'standard'}</td>
             <td class="mono">{new Date(exp.submitted_at).toLocaleDateString()}</td>
             <td class="actions">
@@ -184,7 +220,10 @@
         {/each}
       </tbody>
     </table>
-    <p class="muted">{experiments.length} experiment(s)</p>
+    <p class="muted">
+      {experiments.length} experiment(s)
+      {#if reviewQueue > 0}· <span class="review-count">{reviewQueue} pending human review</span>{/if}
+    </p>
   {/if}
 
   {#if approvalForm}
@@ -247,6 +286,11 @@
   .completed-badge { background: #14532d; color: #86efac; }
   .aborted-badge { background: #7f1d1d; color: #fca5a5; }
   .archived-badge { background: #374151; color: #6b7280; }
+  /* §9 #48 assessment chips */
+  .assess-auto { background: #14532d; color: #86efac; }
+  .assess-review { background: #854d0e; color: #fde68a; }
+  .rclass { font-family: ui-monospace, monospace; font-size: 0.78em; color: #9ca3af; margin-left: 0.35em; }
+  .review-count { color: #fde68a; }
   .muted { color: #6b7280; font-size: 0.95em; }
   .errortext { color: #fca5a5; }
   button { background: #1f2937; border: 1px solid #2a2e3a; color: #d4d4dc; padding: 0.25em 0.65em; border-radius: 4px; cursor: pointer; font: inherit; font-size: 0.85em; }
