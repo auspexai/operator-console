@@ -267,6 +267,14 @@ def build_router(config) -> APIRouter:
         coordinator). operator_console_design.md §11."""
         return await _proxy_get(f"/api/v0/tenants/{tenant_id}/linkage", _headers(request))
 
+    @router.post("/tenants/{tenant_id}/actions/link")
+    async def link_tenant(request: Request, tenant_id: str) -> Any:
+        """Maintainer: link/unlink a tenant to an account (post-registration)."""
+        body = await request.json()
+        return await _proxy_post(
+            f"/api/v0/tenants/{tenant_id}/actions/link", _headers(request), body
+        )
+
     # ---- audit log ----
 
     @router.get("/audit")

@@ -194,6 +194,40 @@
     }
   }
 
+  // Link an EXISTING (unlinked) tenant to an account — the post-registration
+  // linkage that the trust model (tier floor, own-worker enrichment, promotion)
+  // depends on.
+  let linkModal = $state<{ tenantId: string; accountId: string; reason: string } | null>(null);
+
+  function showLinkModal(tenantId: string) {
+    linkModal = { tenantId, accountId: accounts[0]?.account_id ?? '', reason: '' };
+  }
+
+  async function submitLink() {
+    if (!linkModal || !linkModal.accountId) return;
+    actionLoading = true;
+    try {
+      const r = await fetch(
+        `/api/v0/proxy/tenants/${encodeURIComponent(linkModal.tenantId)}/actions/link`,
+        {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ account_id: linkModal.accountId, reason: linkModal.reason }),
+        },
+      );
+      if (!r.ok) {
+        const d = await r.json();
+        throw new Error(JSON.stringify(d));
+      }
+      linkModal = null;
+      await refreshAll(true);
+    } catch (e) {
+      alert(`link failed: ${(e as Error).message}`);
+    } finally {
+      actionLoading = false;
+    }
+  }
+
   let suspendModal = $state<{ accountId: string; reason: string } | null>(null);
 
   async function submitSuspend() {
@@ -395,6 +429,9 @@
             <dt>maintainer pubkey</dt><dd class="mono" title={t.maintainer_pubkey ?? undefined}>{shortHex(t.maintainer_pubkey)}</dd>
             {#if t.description}<dt>description</dt><dd>{t.description}</dd>{/if}
           </dl>
+          {#if accounts.length > 0}
+            <button class="link-btn" onclick={() => showLinkModal(t.tenant_id)} disabled={actionLoading}>link to account…</button>
+          {/if}
         </div>
       {/each}
     </section>
@@ -431,6 +468,33 @@
         <button class="primary" onclick={submitTierChange} disabled={actionLoading || !tierModal.reason.trim()}>
           {tierModal.action} to {tierNames[tierModal.targetTier] ?? `T${tierModal.targetTier}`}
         </button>
+      </div>
+    </div>
+  {/if}
+
+  {#if linkModal}
+    <div class="modal-backdrop" onclick={() => (linkModal = null)}></div>
+    <div class="tier-modal">
+      <h2>Link tenant to account</h2>
+      <p class="mono">{linkModal.tenantId}</p>
+      <label>
+        Account
+        <select bind:value={linkModal.accountId}>
+          {#each accounts as a (a.account_id)}
+            <option value={a.account_id}
+              >{a.account_id} ({tierNames[a.trust_tier] ?? `T${a.trust_tier}`}) — {a.display_name ||
+                a.idp_sub}</option
+            >
+          {/each}
+        </select>
+      </label>
+      <label>
+        Reason (required)
+        <textarea bind:value={linkModal.reason} rows="3" placeholder="Why link this tenant to this account? (e.g., onboarding the operator's research tenant so the account's tier governs its experiments)"></textarea>
+      </label>
+      <div class="modal-actions">
+        <button onclick={() => (linkModal = null)}>cancel</button>
+        <button class="primary" onclick={submitLink} disabled={actionLoading || !linkModal.accountId || !linkModal.reason.trim()}>link</button>
       </div>
     </div>
   {/if}
@@ -536,6 +600,7 @@
   button.danger { background: #7f1d1d; border-color: #7f1d1d; color: #fca5a5; }
   button.danger:hover { background: #991b1b; }
   .modal-backdrop { position: fixed; inset: 0; background: rgba(0, 0, 0, 0.6); z-index: 10; }
+  .link-btn { margin-top: 0.6em; }
   .tier-modal { position: fixed; top: 50%; left: 50%; transform: translate(-50%, -50%); background: #1a1e2a; border: 1px solid #2a2e3a; border-radius: 8px; padding: 1.5em; z-index: 11; width: 90%; max-width: 500px; }
   .tier-modal h2 { margin: 0 0 0.5em; color: #fff; font-size: 1.1em; }
   .tier-modal label { display: block; margin: 0.75em 0 0.25em; color: #9ca3af; font-size: 0.9em; }
