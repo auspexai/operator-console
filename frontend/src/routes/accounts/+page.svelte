@@ -17,6 +17,16 @@
     suspension_reason: string | null;
     identity_verified_at: string | null;
     identity_verification_method: string | null;
+    // Per-account T1→T2 promotion readiness (present only for T1 accounts): so a
+    // maintainer sees who's EARNED it at a glance, not post-hoc via gate-override.
+    t2_readiness: {
+      receipts: number;
+      receipts_required: number;
+      distinct_experiments: number;
+      distinct_required: number;
+      identity_satisfied: boolean;
+      ready: boolean;
+    } | null;
   };
 
   // Full tenant facts (the former standalone /tenants page collapsed into this
@@ -278,7 +288,17 @@
               <span class="badge idp-badge">{acct.idp}</span>
               {acct.display_name || acct.idp_sub}
             </td>
-            <td><span class="badge tier-{acct.trust_tier}">{tierNames[acct.trust_tier] ?? `T${acct.trust_tier}`}</span></td>
+            <td>
+              <span class="badge tier-{acct.trust_tier}">{tierNames[acct.trust_tier] ?? `T${acct.trust_tier}`}</span>
+              {#if acct.t2_readiness}
+                <div class="t2-ready" title="Progress toward T1→T2 promotion (receipts + distinct experiments + identity gate).">
+                  {#if acct.t2_readiness.ready}<span class="ready-badge">ready for T2</span>{/if}
+                  <span class="rd" class:met={acct.t2_readiness.receipts >= acct.t2_readiness.receipts_required}>{acct.t2_readiness.receipts}/{acct.t2_readiness.receipts_required} receipts</span>
+                  <span class="rd" class:met={acct.t2_readiness.distinct_experiments >= acct.t2_readiness.distinct_required}>{acct.t2_readiness.distinct_experiments}/{acct.t2_readiness.distinct_required} exps</span>
+                  <span class="rd" class:met={acct.t2_readiness.identity_satisfied}>{acct.t2_readiness.identity_satisfied ? 'identity ✓' : 'identity pending'}</span>
+                </div>
+              {/if}
+            </td>
             <td class="linkage-cell">
               <!-- Empty for most volunteers — only researcher accounts carry tenants/applications.
                    Tenant facts render nested below the row (the former /tenants page's home). -->
@@ -483,6 +503,11 @@
   .errortext { color: #fca5a5; }
   .id-link { color: #a78bfa; text-decoration: none; }
   .id-link:hover { text-decoration: underline; }
+  /* T1→T2 promotion readiness (per-account, in the tier cell) */
+  .t2-ready { margin-top: 0.35em; display: flex; flex-direction: column; gap: 0.12em; }
+  .ready-badge { align-self: flex-start; padding: 0.05em 0.5em; border-radius: 3px; font-size: 0.78em; font-weight: 600; background: #14532d; color: #86efac; border: 1px solid #22c55e; }
+  .rd { font-size: 0.78em; color: #9ca3af; font-variant-numeric: tabular-nums; }
+  .rd.met { color: #6ee7a0; }
   .linkage-cell .pending-chip { margin-left: 0.3em; }
   .pending-chip { display: inline-block; padding: 0.1em 0.55em; border-radius: 3px; font-size: 0.85em; font-weight: 500; background: #78350f; color: #fcd34d; text-decoration: none; }
   .pending-chip:hover { background: #92400e; }
