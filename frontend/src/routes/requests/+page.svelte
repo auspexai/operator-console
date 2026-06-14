@@ -685,11 +685,12 @@
               onchange={saveGate}
               disabled={gateSaving}
             >
-              <option value="off">Off — all experiments go to review</option>
+              <option value="off">Off — no auto-approval (all go to review)</option>
               <option value="t2">On — auto-approve routine, tier ≥ T2</option>
               <option value="t3">On — auto-approve routine, tier ≥ T3</option>
             </select>
           </div>
+          <span class="hint">the agent still assesses + queues every experiment; “off” only withholds the auto-approve — it doesn’t halt the engine</span>
           {#if expAgent && !expAgent.timer_active}<div class="agent-warn">engine stopped — auto-approval won't run until it's started</div>{/if}
         </div>
       {/if}
