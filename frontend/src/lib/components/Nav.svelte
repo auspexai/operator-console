@@ -7,7 +7,10 @@
   // NOW + /workers + /models + the experiment record); only a redirect remains.
   // /tenants dissolved 2026-06-12 (one home per fact: account = the root) —
   // tenants nest under the Accounts pages.
-  const groups = [
+  type NavLink = { href: string; label: string; external?: boolean };
+  // The coordinator's API docs (Swagger/ReDoc) are maintainer-gated, so they
+  // live here on the authed console — not on the public coordinator landing page.
+  const groups: { label: string | null; links: NavLink[] }[] = [
     { label: null, links: [{ href: '/', label: 'Now' }] },
     {
       label: 'Run',
@@ -26,6 +29,13 @@
         { href: '/audit', label: 'Audit' },
       ],
     },
+    {
+      label: 'API',
+      links: [
+        { href: 'https://coord.auspexai.network/docs', label: 'Swagger', external: true },
+        { href: 'https://coord.auspexai.network/redoc', label: 'ReDoc', external: true },
+      ],
+    },
   ];
 </script>
 
@@ -34,7 +44,11 @@
     {#if i > 0}<span class="sep" aria-hidden="true"></span>{/if}
     {#if group.label}<span class="group-label">{group.label}</span>{/if}
     {#each group.links as link}
-      <a href={link.href} class:active={link.href === '/' ? page.url.pathname === '/' : page.url.pathname.startsWith(link.href)}>{link.label}</a>
+      {#if link.external}
+        <a href={link.href} target="_blank" rel="noopener">{link.label} ↗</a>
+      {:else}
+        <a href={link.href} class:active={link.href === '/' ? page.url.pathname === '/' : page.url.pathname.startsWith(link.href)}>{link.label}</a>
+      {/if}
     {/each}
   {/each}
 </nav>
