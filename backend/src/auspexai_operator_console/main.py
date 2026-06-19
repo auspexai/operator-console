@@ -17,6 +17,7 @@ from starlette.middleware.sessions import SessionMiddleware
 
 from . import __version__
 from .agent_admin import build_router as build_agent_admin_router
+from .apidocs import build_router as build_apidocs_router
 from .auth import build_router as build_auth_router
 from .config import OperatorConsoleConfig
 from .proxy import build_router as build_proxy_router
@@ -56,6 +57,11 @@ def create_app(config: OperatorConsoleConfig | None = None) -> FastAPI:
     # Local agent-admin surface (§9 #46): the rage-local assessment agent's
     # config/spend-cap — session-gated direct read/write, NOT a coordinator proxy.
     app.include_router(build_agent_admin_router(config))
+
+    # Coordinator API-docs (Swagger/ReDoc) served at the console's authed origin,
+    # proxying the maintainer-only coordinator schema with the service token. Must
+    # register before the SPA catch-all below so /maintainer/* hits these routes.
+    app.include_router(build_apidocs_router(config))
 
     @app.get("/api/v0/health")
     async def health() -> JSONResponse:

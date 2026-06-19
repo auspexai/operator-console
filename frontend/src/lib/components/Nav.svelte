@@ -8,8 +8,10 @@
   // /tenants dissolved 2026-06-12 (one home per fact: account = the root) —
   // tenants nest under the Accounts pages.
   type NavLink = { href: string; label: string; external?: boolean };
-  // The coordinator's API docs (Swagger/ReDoc) are maintainer-gated, so they
-  // live here on the authed console — not on the public coordinator landing page.
+  // The coordinator's API docs (Swagger/ReDoc) are maintainer-gated, so they load
+  // through the console's own authed origin (/maintainer/*), which proxies the
+  // coordinator schema with the service token — the session cookie does the
+  // browser-side auth. Not on the public coordinator landing page.
   const groups: { label: string | null; links: NavLink[] }[] = [
     { label: null, links: [{ href: '/', label: 'Now' }] },
     {
@@ -32,8 +34,8 @@
     {
       label: 'API',
       links: [
-        { href: 'https://coord.auspexai.network/docs', label: 'Swagger', external: true },
-        { href: 'https://coord.auspexai.network/redoc', label: 'ReDoc', external: true },
+        { href: '/maintainer/docs', label: 'Swagger', external: true },
+        { href: '/maintainer/redoc', label: 'ReDoc', external: true },
       ],
     },
   ];

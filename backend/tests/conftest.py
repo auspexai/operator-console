@@ -54,4 +54,9 @@ def authed_client(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> TestClient
         "auspexai_operator_console.agent_admin.require_session",
         lambda request: "test-maintainer",
     )
+    # apidocs imports require_session separately as well.
+    monkeypatch.setattr(
+        "auspexai_operator_console.apidocs.require_session",
+        lambda request: "test-maintainer",
+    )
     return TestClient(create_app(_config(tmp_path)))
