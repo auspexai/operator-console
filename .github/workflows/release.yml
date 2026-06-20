@@ -65,6 +65,8 @@ jobs:
           # The copied build files are gitignored (`static/*`), so keeping
           # .gitkeep is enough to keep the tree clean. See version_provenance.md.
           dest=backend/src/auspexai_operator_console/static
+          mkdir -p "$dest"   # defensive: never abort the build if the dir is missing (e.g. a
+                             # local deploy accidentally rm -rf'd the tracked .gitkeep)
           find "$dest" -mindepth 1 -maxdepth 1 ! -name .gitkeep -exec rm -rf {} +
           cp -r frontend/build/. "$dest"/
 
