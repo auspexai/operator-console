@@ -10,6 +10,10 @@
     tenant_id: string;
     status: string;
     integrity_policy: string;
+    // C14: the (target, floor) replication override. The coordinator derives the
+    // integrity_policy label from the target; floor is min corroboration.
+    replication_target: number | null;
+    replication_floor: number | null;
     submitted_at: string;
     started_at: string | null;
     completed_at: string | null;
@@ -53,7 +57,8 @@
 
   let approvalForm = $state<{
     experimentId: string;
-    integrity_policy: string;
+    replication_target: string;
+    replication_floor: string;
     max_unit_duration_seconds: string;
     max_units: string;
     max_concurrent_assignments: string;
@@ -80,9 +85,12 @@
   }
 
   function showApprovalForm(exp: Experiment) {
+    // C14: default to the experiment's replication when present, else the
+    // (target 3, floor 2) baseline.
     approvalForm = {
       experimentId: exp.experiment_id,
-      integrity_policy: 'standard',
+      replication_target: String(exp.replication_target ?? 3),
+      replication_floor: String(exp.replication_floor ?? 2),
       max_unit_duration_seconds: '1800',
       max_units: '500',
       max_concurrent_assignments: '10',
@@ -93,9 +101,11 @@
   async function submitApproval() {
     if (!approvalForm) return;
     try {
-      const body: Record<string, any> = {
-        integrity_policy: approvalForm.integrity_policy,
-      };
+      const body: Record<string, any> = {};
+      if (approvalForm.replication_target)
+        body.replication_target = parseInt(approvalForm.replication_target);
+      if (approvalForm.replication_floor)
+        body.replication_floor = parseInt(approvalForm.replication_floor);
       if (approvalForm.max_unit_duration_seconds)
         body.max_unit_duration_seconds = parseInt(approvalForm.max_unit_duration_seconds);
       if (approvalForm.max_units)
@@ -182,7 +192,7 @@
           <th>tenant</th>
           <th>status</th>
           <th>assessment</th>
-          <th>integrity</th>
+          <th>replication</th>
           <th>submitted</th>
           <th>actions</th>
         </tr>
@@ -201,7 +211,7 @@
                 <span class="muted">—</span>
               {/if}
             </td>
-            <td>{exp.integrity_policy ?? 'standard'}</td>
+            <td>target {exp.replication_target ?? '—'} / floor {exp.replication_floor ?? '—'} ({exp.integrity_policy ?? 'standard'})</td>
             <td class="mono">{new Date(exp.submitted_at).toLocaleDateString()}</td>
             <td class="actions">
               {#if exp.status === 'submitted'}
@@ -233,13 +243,16 @@
       <p class="mono">{approvalForm.experimentId}</p>
 
       <label>
-        Integrity policy
-        <select bind:value={approvalForm.integrity_policy}>
-          <option value="standard">standard (N=3, all tiers)</option>
-          <option value="high">high (N=5, higher confidence)</option>
-          <option value="trusted">trusted (N=1, T2+ only)</option>
-        </select>
+        Replication target (aspiration)
+        <input type="number" min="1" max="15" bind:value={approvalForm.replication_target} />
       </label>
+
+      <label>
+        Replication floor (min corroboration)
+        <input type="number" min="1" max="15" bind:value={approvalForm.replication_floor} />
+      </label>
+
+      <p class="hint">The coordinator floors both by the tenant's trust tier; target ≥ floor. The integrity label is derived from the target.</p>
 
       <label>
         Max unit duration (seconds)
@@ -306,6 +319,7 @@
   .approval-modal { position: fixed; top: 50%; left: 50%; transform: translate(-50%, -50%); background: #1a1e2a; border: 1px solid #2a2e3a; border-radius: 8px; padding: 1.5em; z-index: 11; width: 90%; max-width: 500px; }
   .approval-modal h2 { margin: 0 0 0.5em; color: #fff; font-size: 1.1em; }
   .approval-modal label { display: block; margin: 0.75em 0 0.25em; color: #9ca3af; font-size: 0.9em; }
-  .approval-modal select, .approval-modal input { width: 100%; padding: 0.4em; background: #0a0e1a; border: 1px solid #2a2e3a; border-radius: 4px; color: #d4d4dc; font: inherit; }
+  .approval-modal input { width: 100%; padding: 0.4em; background: #0a0e1a; border: 1px solid #2a2e3a; border-radius: 4px; color: #d4d4dc; font: inherit; }
+  .approval-modal .hint { color: #6b7280; font-size: 0.8em; margin: 0.5em 0 0; line-height: 1.4; }
   .modal-actions { display: flex; gap: 0.75em; justify-content: flex-end; margin-top: 1.25em; }
 </style>

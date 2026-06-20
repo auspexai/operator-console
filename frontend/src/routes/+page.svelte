@@ -52,6 +52,10 @@
     tenant_id: string;
     status: string;
     integrity_policy: string;
+    // C14: the (target, floor) replication override. The coordinator derives the
+    // integrity_policy label from the target; floor is min corroboration.
+    replication_target: number | null;
+    replication_floor: number | null;
     submitted_at: string;
     tenant_experiment_label?: string;
   };
@@ -267,7 +271,8 @@
 
   let approvalForm = $state<{
     experimentId: string;
-    integrity_policy: string;
+    replication_target: string;
+    replication_floor: string;
     max_unit_duration_seconds: string;
     max_units: string;
     max_concurrent_assignments: string;
@@ -275,9 +280,12 @@
   } | null>(null);
 
   function showApprovalForm(exp: Experiment) {
+    // C14: default to the experiment's replication when present, else the
+    // (target 3, floor 2) baseline.
     approvalForm = {
       experimentId: exp.experiment_id,
-      integrity_policy: 'standard',
+      replication_target: String(exp.replication_target ?? 3),
+      replication_floor: String(exp.replication_floor ?? 2),
       max_unit_duration_seconds: '1800',
       max_units: '500',
       max_concurrent_assignments: '10',
@@ -289,9 +297,11 @@
     if (!approvalForm) return;
     actionLoading = true;
     try {
-      const body: Record<string, unknown> = {
-        integrity_policy: approvalForm.integrity_policy,
-      };
+      const body: Record<string, unknown> = {};
+      if (approvalForm.replication_target)
+        body.replication_target = parseInt(approvalForm.replication_target);
+      if (approvalForm.replication_floor)
+        body.replication_floor = parseInt(approvalForm.replication_floor);
       if (approvalForm.max_unit_duration_seconds)
         body.max_unit_duration_seconds = parseInt(approvalForm.max_unit_duration_seconds);
       if (approvalForm.max_units) body.max_units = parseInt(approvalForm.max_units);
@@ -972,12 +982,11 @@
     <div class="modal">
       <h2>Approve experiment</h2>
       <p class="mono muted">{approvalForm.experimentId}</p>
-      <label for="ap-policy">integrity policy</label>
-      <select id="ap-policy" bind:value={approvalForm.integrity_policy}>
-        <option value="trusted">trusted (replication 1)</option>
-        <option value="standard">standard (replication 3)</option>
-        <option value="high">high (replication 5)</option>
-      </select>
+      <label for="ap-target">Replication target (aspiration)</label>
+      <input id="ap-target" type="number" min="1" max="15" bind:value={approvalForm.replication_target} />
+      <label for="ap-floor">Replication floor (min corroboration)</label>
+      <input id="ap-floor" type="number" min="1" max="15" bind:value={approvalForm.replication_floor} />
+      <p class="hint">The coordinator floors both by the tenant's trust tier; target ≥ floor. The integrity label is derived from the target.</p>
       <label for="ap-dur">max unit duration (s)</label>
       <input id="ap-dur" bind:value={approvalForm.max_unit_duration_seconds} />
       <label for="ap-units">max units</label>
@@ -1252,8 +1261,7 @@
     color: #9ca3af;
     margin: 0.7em 0 0.25em;
   }
-  .modal input,
-  .modal select {
+  .modal input {
     width: 100%;
     padding: 0.45em 0.6em;
     font: inherit;
@@ -1267,6 +1275,12 @@
     display: flex;
     gap: 0.6em;
     margin-top: 1em;
+  }
+  .modal .hint {
+    color: #6b7280;
+    font-size: 0.8em;
+    margin: 0.5em 0 0;
+    line-height: 1.4;
   }
   footer {
     margin-top: 2.5em;
