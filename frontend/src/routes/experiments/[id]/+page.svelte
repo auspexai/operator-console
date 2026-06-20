@@ -10,6 +10,10 @@
     tenant_id: string;
     status: string;
     integrity_policy: string;
+    // C14: the (target, floor) replication override. The coordinator derives the
+    // integrity_policy label from the target; floor is min corroboration.
+    replication_target: number | null;
+    replication_floor: number | null;
     submitted_at: string;
     last_action_at: string | null;
     started_at: string | null;
@@ -51,7 +55,8 @@
   let live = $state(false);
 
   let approvalForm = $state<{
-    integrity_policy: string;
+    replication_target: string;
+    replication_floor: string;
     max_unit_duration_seconds: string;
     max_units: string;
     max_concurrent_assignments: string;
@@ -90,8 +95,11 @@
   }
 
   function showApprovalForm() {
+    // C14: default to the loaded experiment's replication when present, else the
+    // (target 3, floor 2) baseline. The modal only opens after loadExperiment().
     approvalForm = {
-      integrity_policy: 'standard',
+      replication_target: String(experiment?.replication_target ?? 3),
+      replication_floor: String(experiment?.replication_floor ?? 2),
       max_unit_duration_seconds: '1800',
       max_units: '500',
       max_concurrent_assignments: '10',
@@ -103,9 +111,11 @@
     if (!approvalForm) return;
     actionLoading = true;
     try {
-      const body: Record<string, any> = {
-        integrity_policy: approvalForm.integrity_policy,
-      };
+      const body: Record<string, any> = {};
+      if (approvalForm.replication_target)
+        body.replication_target = parseInt(approvalForm.replication_target);
+      if (approvalForm.replication_floor)
+        body.replication_floor = parseInt(approvalForm.replication_floor);
       if (approvalForm.max_unit_duration_seconds)
         body.max_unit_duration_seconds = parseInt(approvalForm.max_unit_duration_seconds);
       if (approvalForm.max_units)
@@ -149,10 +159,11 @@
     }
   }
 
-  // Set integrity policy + trigger pre-stage (I2: moved here from the dissolved
-  // /scheduler — these are experiment-scoped actions, so the experiment record
-  // is their canonical home). Both mandatory-reason + audited.
-  let policyModal = $state<{ policy: string; reason: string } | null>(null);
+  // Set replication (C14, the successor to set-integrity-policy) + trigger
+  // pre-stage (I2: moved here from the dissolved /scheduler — these are
+  // experiment-scoped actions, so the experiment record is their canonical
+  // home). Both mandatory-reason + audited.
+  let replicationModal = $state<{ target: string; floor: string; reason: string } | null>(null);
   let prestageModal = $state<{ reason: string } | null>(null);
 
   async function reasonedAction(action: string, body: Record<string, unknown>, label: string) {
@@ -178,15 +189,14 @@
     }
   }
 
-  async function submitPolicy() {
-    if (!policyModal || !policyModal.reason.trim()) return;
-    const m = policyModal;
-    policyModal = null;
-    await reasonedAction(
-      'set-integrity-policy',
-      { integrity_policy: m.policy, reason: m.reason },
-      'set policy',
-    );
+  async function submitReplication() {
+    if (!replicationModal || !replicationModal.reason.trim()) return;
+    const m = replicationModal;
+    replicationModal = null;
+    const body: Record<string, unknown> = { reason: m.reason };
+    if (m.target) body.replication_target = parseInt(m.target);
+    if (m.floor) body.replication_floor = parseInt(m.floor);
+    await reasonedAction('set-replication', body, 'set replication');
   }
 
   async function submitPrestage() {
@@ -298,7 +308,7 @@
         <dt>tenant</dt><dd class="mono">{experiment.tenant_id}</dd>
         <dt>status</dt>
         <dd><span class="badge {statusBadge[experiment.status] ?? ''}">{experiment.status}</span></dd>
-        <dt>integrity policy</dt><dd>{experiment.integrity_policy ?? 'standard'}</dd>
+        <dt>replication</dt><dd>target {experiment.replication_target ?? '—'} / floor {experiment.replication_floor ?? '—'} ({experiment.integrity_policy ?? 'standard'})</dd>
         <dt>submitted</dt><dd class="mono">{new Date(experiment.submitted_at).toLocaleString()}</dd>
         {#if experiment.last_action_at}
           <dt>last action</dt><dd class="mono">{new Date(experiment.last_action_at).toLocaleString()}</dd>
@@ -433,7 +443,7 @@
           <button class="danger" onclick={() => experimentAction('abort')} disabled={actionLoading}>abort</button>
         {/if}
         {#if experiment.status === 'approved' || experiment.status === 'paused'}
-          <button onclick={() => (policyModal = { policy: experiment?.integrity_policy ?? 'standard', reason: '' })} disabled={actionLoading}>set integrity policy…</button>
+          <button onclick={() => (replicationModal = { target: String(experiment?.replication_target ?? 3), floor: String(experiment?.replication_floor ?? 2), reason: '' })} disabled={actionLoading}>set replication…</button>
           <button onclick={() => (prestageModal = { reason: '' })} disabled={actionLoading}>trigger pre-stage…</button>
         {/if}
         {#if !['submitted', 'approved', 'paused'].includes(experiment.status)}
@@ -450,13 +460,16 @@
       <p class="mono">{experimentId}</p>
 
       <label>
-        Integrity policy
-        <select bind:value={approvalForm.integrity_policy}>
-          <option value="standard">standard (N=3, all tiers)</option>
-          <option value="high">high (N=5, higher confidence)</option>
-          <option value="trusted">trusted (N=1, T2+ only)</option>
-        </select>
+        Replication target (aspiration)
+        <input type="number" min="1" max="15" bind:value={approvalForm.replication_target} />
       </label>
+
+      <label>
+        Replication floor (min corroboration)
+        <input type="number" min="1" max="15" bind:value={approvalForm.replication_floor} />
+      </label>
+
+      <p class="hint">The coordinator floors both by the tenant's trust tier; target ≥ floor. The integrity label is derived from the target.</p>
 
       <label>
         Max unit duration (seconds)
@@ -485,27 +498,28 @@
     </div>
   {/if}
 
-  {#if policyModal}
-    <div class="modal-backdrop" onclick={() => (policyModal = null)}></div>
+  {#if replicationModal}
+    <div class="modal-backdrop" onclick={() => (replicationModal = null)}></div>
     <div class="approval-modal">
-      <h2>Set integrity policy</h2>
+      <h2>Set replication</h2>
       <p class="mono">{experimentId}</p>
       <p class="warning">Affects FUTURE units only — units already submitted keep their replication target.</p>
       <label>
-        Policy
-        <select bind:value={policyModal.policy}>
-          <option value="standard">standard (replication 3)</option>
-          <option value="high">high (replication 5)</option>
-          <option value="trusted">trusted (replication 1; T2+ only)</option>
-        </select>
+        Replication target (aspiration)
+        <input type="number" min="1" max="15" bind:value={replicationModal.target} />
       </label>
       <label>
+        Replication floor (min corroboration)
+        <input type="number" min="1" max="15" bind:value={replicationModal.floor} />
+      </label>
+      <p class="hint">The coordinator floors both by the tenant's trust tier; target ≥ floor. The integrity label is derived from the target.</p>
+      <label>
         Reason (required)
-        <textarea bind:value={policyModal.reason} rows="3" placeholder="recorded in the audit log"></textarea>
+        <textarea bind:value={replicationModal.reason} rows="3" placeholder="recorded in the audit log"></textarea>
       </label>
       <div class="modal-actions">
-        <button onclick={() => (policyModal = null)}>cancel</button>
-        <button class="primary" onclick={submitPolicy} disabled={actionLoading || !policyModal.reason.trim()}>set policy</button>
+        <button onclick={() => (replicationModal = null)}>cancel</button>
+        <button class="primary" onclick={submitReplication} disabled={actionLoading || !replicationModal.reason.trim()}>set replication</button>
       </div>
     </div>
   {/if}
@@ -604,7 +618,8 @@
   .approval-modal { position: fixed; top: 50%; left: 50%; transform: translate(-50%, -50%); background: #1a1e2a; border: 1px solid #2a2e3a; border-radius: 8px; padding: 1.5em; z-index: 11; width: 90%; max-width: 500px; }
   .approval-modal h2 { margin: 0 0 0.5em; color: #fff; font-size: 1.1em; }
   .approval-modal label { display: block; margin: 0.75em 0 0.25em; color: #9ca3af; font-size: 0.9em; }
-  .approval-modal select, .approval-modal input, .approval-modal textarea { width: 100%; padding: 0.4em; background: #0a0e1a; border: 1px solid #2a2e3a; border-radius: 4px; color: #d4d4dc; font: inherit; resize: vertical; }
+  .approval-modal input, .approval-modal textarea { width: 100%; padding: 0.4em; background: #0a0e1a; border: 1px solid #2a2e3a; border-radius: 4px; color: #d4d4dc; font: inherit; resize: vertical; }
   .warning { background: #422006; border: 1px solid #854d0e; color: #fde68a; border-radius: 6px; padding: 0.6em 0.8em; font-size: 0.85em; margin: 0.75em 0 0; }
+  .hint { color: #6b7280; font-size: 0.8em; margin: 0.5em 0 0; line-height: 1.4; }
   .modal-actions { display: flex; gap: 0.75em; justify-content: flex-end; margin-top: 1.25em; }
 </style>

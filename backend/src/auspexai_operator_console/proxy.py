@@ -189,6 +189,12 @@ def build_router(config) -> APIRouter:
         params = []
         if body.get("integrity_policy"):
             params.append(f"integrity_policy={body['integrity_policy']}")
+        # C14: the (replication_target, replication_floor) override takes
+        # precedence over the legacy integrity_policy on the coordinator. Forward
+        # only when present so an unset key falls back to the experiment default.
+        for repl_key in ["replication_target", "replication_floor"]:
+            if body.get(repl_key) is not None:
+                params.append(f"{repl_key}={body[repl_key]}")
         for key in [
             "max_unit_duration_seconds",
             "max_units",
@@ -455,6 +461,18 @@ def build_router(config) -> APIRouter:
         body = await request.json()
         return await _proxy_post(
             f"/api/v0/experiments/{experiment_id}/actions/set-integrity-policy",
+            _headers(request),
+            body,
+        )
+
+    # C14: the replication-override successor to set-integrity-policy. JSON body
+    # {replication_target?, replication_floor?, reason}; the coordinator
+    # tier-floors both server-side and applies to FUTURE units only.
+    @router.post("/experiments/{experiment_id}/actions/set-replication")
+    async def set_replication(request: Request, experiment_id: str) -> Any:
+        body = await request.json()
+        return await _proxy_post(
+            f"/api/v0/experiments/{experiment_id}/actions/set-replication",
             _headers(request),
             body,
         )
