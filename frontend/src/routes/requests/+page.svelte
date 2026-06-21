@@ -217,6 +217,49 @@
     }
   }
 
+  // Promotion-gate certifications (RFC 0001 / Ethics §6.7) — the OTHER auto-approval
+  // lever: certified profiles auto-run by their certification, independent of the
+  // routine-tier gate above. Read-only list + revoke; issuing is a CLI/host act.
+  type Cert = {
+    package_sha256: string;
+    snapshot_version: string;
+    tenant_id: string;
+    profile_name: string;
+    status: string;
+    replication_floor: number;
+    advisor: string | null;
+  };
+  let certs = $state<Cert[]>([]);
+  let activeCerts = $derived(certs.filter((c) => c.status === 'certified'));
+
+  async function loadCerts() {
+    try {
+      const r = await fetch('/api/v0/proxy/certifications');
+      if (r.ok) certs = (await r.json()).certifications ?? [];
+    } catch {
+      /* certifications panel is best-effort */
+    }
+  }
+
+  async function revokeCert(c: Cert) {
+    const reason = prompt(
+      `Revoke certification for ${c.tenant_id}/${c.profile_name} @ ${c.snapshot_version}?\n\n` +
+        `Its runs stop auto-clearing and revert to review. Reason (required):`,
+    );
+    if (!reason || !reason.trim()) return;
+    try {
+      const r = await fetch(`/api/v0/proxy/certifications/${c.package_sha256}/revoke`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ reason: reason.trim() }),
+      });
+      if (!r.ok) throw new Error(`HTTP ${r.status}`);
+      await loadCerts();
+    } catch (e) {
+      alert(`revoke failed: ${(e as Error).message}`);
+    }
+  }
+
   async function loadAll(silent = false): Promise<boolean> {
     if (!silent) loading = true;
     try {
@@ -437,6 +480,7 @@
     loadAgent();
     loadExpAgent();
     loadGate();
+    loadCerts();
     return autoRefresh({
       refresh: () => loadAll(true),
       setLive: (v) => (live = v),
@@ -673,25 +717,65 @@
         </div>
       {/if}
 
-      <!-- Experiment auto-approval — mechanical, no cost; the dropdown is the state -->
+      <!-- Auto-approval — what runs without your approval (two levers) -->
       {#if gate}
         <div class="agent">
-          <div class="agent-name">Experiment auto-approval</div>
+          <div class="agent-name">Auto-approval — what runs without your approval</div>
           <div class="agent-sub">no LLM · no cost</div>
-          <div class="agent-ctl">
-            <select
-              class="cap-input gate-select"
-              bind:value={gateChoice}
-              onchange={saveGate}
-              disabled={gateSaving}
-            >
-              <option value="off">Off — no auto-approval (all go to review)</option>
-              <option value="t2">On — auto-approve routine, tier ≥ T2</option>
-              <option value="t3">On — auto-approve routine, tier ≥ T3</option>
-            </select>
+
+          <!-- Lever 1: certified profiles — vetted/declawed, auto-run for everyone -->
+          <div class="gate-block">
+            <div class="gate-block-h">
+              Certified profiles <span class="muted">— always auto-run (vetted, declawed)</span>
+            </div>
+            {#if activeCerts.length === 0}
+              <p class="hint">
+                None certified. Certify a starter on the coordinator (<code>certification issue</code>)
+                to make its runs auto-clear.
+              </p>
+            {:else}
+              <table class="cert-table">
+                <tbody>
+                  {#each activeCerts as c (c.package_sha256)}
+                    <tr>
+                      <td class="mono">{c.tenant_id}/{c.profile_name}</td>
+                      <td class="mono muted">{c.snapshot_version}</td>
+                      <td class="muted">floor {c.replication_floor}</td>
+                      <td class="muted">{c.advisor ? `advisor: ${c.advisor}` : 'low-risk'}</td>
+                      <td><button class="linkish" onclick={() => revokeCert(c)}>revoke</button></td>
+                    </tr>
+                  {/each}
+                </tbody>
+              </table>
+            {/if}
           </div>
-          <span class="hint">the agent still assesses + queues every experiment; “off” only withholds the auto-approve — it doesn’t halt the engine</span>
-          {#if expAgent && !expAgent.timer_active}<div class="agent-warn">engine stopped — auto-approval won't run until it's started</div>{/if}
+
+          <!-- Lever 2: the frontier — uncertified routine from trusted tenants -->
+          <div class="gate-block">
+            <div class="gate-block-h">
+              Trusted tenants' uncertified research
+              <span class="muted">— the frontier that produces certifiable profiles</span>
+            </div>
+            <div class="agent-ctl">
+              <select
+                class="cap-input gate-select"
+                bind:value={gateChoice}
+                onchange={saveGate}
+                disabled={gateSaving}
+              >
+                <option value="off">Off — I review every uncertified experiment</option>
+                <option value="t2">Auto-approve routine from trusted tenants (T2+)</option>
+                <option value="t3">Auto-approve routine from vetted tenants only (T3)</option>
+              </select>
+            </div>
+            <span class="hint"
+              >does not affect certified profiles · the agent still assesses + queues every
+              experiment; “off” only withholds the auto-approve</span
+            >
+          </div>
+          {#if expAgent && !expAgent.timer_active}<div class="agent-warn">
+              engine stopped — auto-approval won't run until it's started
+            </div>{/if}
         </div>
       {/if}
     {/if}
@@ -853,6 +937,12 @@
   .agent-ctl { display: flex; align-items: center; gap: 0.6em; margin-top: 0.45em; flex-wrap: wrap; }
   .cost { color: #cbd5e1; font-variant-numeric: tabular-nums; }
   .hint { color: #6b7280; font-size: 0.85em; }
+  .gate-block { margin: 0.6em 0 0.4em; padding-left: 0.7em; border-left: 2px solid #2a2a35; }
+  .gate-block-h { font-size: 0.92em; color: #cbd5e1; }
+  .cert-table { margin-top: 0.35em; border-collapse: collapse; font-size: 0.85em; }
+  .cert-table td { padding: 0.12em 0.7em 0.12em 0; vertical-align: middle; }
+  .linkish { background: none; border: none; color: #a78bfa; cursor: pointer; padding: 0; font: inherit; }
+  .linkish:hover { text-decoration: underline; }
   .agent-warn { margin-top: 0.35em; color: #fbbf24; font-size: 0.9em; }
   a { color: #a78bfa; }
   .modal-backdrop { position: fixed; inset: 0; background: rgba(0, 0, 0, 0.6); z-index: 10; }

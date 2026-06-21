@@ -107,6 +107,25 @@ def build_router(config) -> APIRouter:
             _headers(request),
         )
 
+    # ---- promotion-gate certifications (RFC 0001 / Ethics §6.7) ----
+
+    @router.get("/certifications")
+    async def list_certifications(request: Request) -> Any:
+        return await _proxy_get("/api/v0/certifications", _headers(request))
+
+    @router.post("/certifications/{package_sha256}/revoke")
+    async def revoke_certification(request: Request, package_sha256: str) -> Any:
+        body = (
+            await request.json()
+            if request.headers.get("content-type", "").startswith("application/json")
+            else {}
+        )
+        return await _proxy_post(
+            f"/api/v0/certifications/{package_sha256}/revoke",
+            _headers(request),
+            {"reason": body.get("reason", "")},
+        )
+
     # ---- promotion queue ----
 
     @router.get("/accounts/{account_id}/receipt-stats")
