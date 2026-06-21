@@ -228,6 +228,7 @@
     status: string;
     replication_floor: number;
     advisor: string | null;
+    rekor_log_index: number | null;
   };
   let certs = $state<Cert[]>([]);
   let activeCerts = $derived(certs.filter((c) => c.status === 'certified'));
@@ -742,6 +743,17 @@
                       <td class="mono muted">{c.snapshot_version}</td>
                       <td class="muted">floor {c.replication_floor}</td>
                       <td class="muted">{c.advisor ? `advisor: ${c.advisor}` : 'low-risk'}</td>
+                      <td class="muted">
+                        {#if c.rekor_log_index != null}
+                          <a
+                            href={`https://search.sigstore.dev/?logIndex=${c.rekor_log_index}`}
+                            target="_blank"
+                            rel="noopener noreferrer"
+                            title="view this certificate in the public Rekor transparency log">rekor {c.rekor_log_index}</a>
+                        {:else}
+                          <span title="anchor pending — run `certification backfill-rekor`">un-anchored</span>
+                        {/if}
+                      </td>
                       <td><button class="linkish" onclick={() => revokeCert(c)}>revoke</button></td>
                     </tr>
                   {/each}
