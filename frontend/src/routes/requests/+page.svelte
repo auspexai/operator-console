@@ -746,10 +746,10 @@
                       <td class="muted">
                         {#if c.rekor_log_index != null}
                           <a
-                            href={`https://search.sigstore.dev/?logIndex=${c.rekor_log_index}`}
+                            href={`https://auspexai.network/verify.html?cert=${c.package_sha256}`}
                             target="_blank"
                             rel="noopener noreferrer"
-                            title="view this certificate in the public Rekor transparency log">rekor {c.rekor_log_index}</a>
+                            title="open the public verifier for this certificate (signature + roster + Rekor inclusion)">verify · rekor {c.rekor_log_index}</a>
                         {:else}
                           <span title="anchor pending — run `certification backfill-rekor`">un-anchored</span>
                         {/if}
