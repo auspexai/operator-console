@@ -135,6 +135,28 @@ def build_router(config) -> APIRouter:
             _headers(request),
         )
 
+    # ---- research standing (R0-R3) ----
+    # The two-axis trust dossier: research standing gates BYOT/high-risk
+    # experiments (per the on-ramp arc), distinct from the compute trust tier
+    # above. The GET is the reviewer's evidence; the POST is a one-step,
+    # mandatory-reason promotion (R1→R2 / R2→R3), gate-warned like tier changes.
+
+    @router.get("/accounts/{account_id}/research-standing")
+    async def research_standing(request: Request, account_id: str) -> Any:
+        return await _proxy_get(
+            f"/api/v0/accounts/{account_id}/research-standing",
+            _headers(request),
+        )
+
+    @router.post("/accounts/{account_id}/actions/promote-research-standing")
+    async def promote_research_standing(request: Request, account_id: str) -> Any:
+        body = await request.json()
+        return await _proxy_post(
+            f"/api/v0/accounts/{account_id}/actions/promote-research-standing",
+            _headers(request),
+            body,
+        )
+
     @router.post("/accounts/{account_id}/actions/promote")
     async def promote_account(request: Request, account_id: str) -> Any:
         body = await request.json()

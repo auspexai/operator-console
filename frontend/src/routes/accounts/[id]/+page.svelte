@@ -44,6 +44,25 @@
     quarantine_reason: string | null;
   };
 
+  type ResearchExperiment = {
+    experiment_id: string;
+    tenant_id: string;
+    manifest_hash: string;
+    research_class: string;
+    completed_at: string;
+    rekor_log_index: number;
+  };
+
+  type ResearchStanding = {
+    account_id: string;
+    current: number;
+    current_name: string;
+    distinct_clean_completed_verified: number;
+    threshold: number;
+    eligible_for_r2_review: boolean;
+    experiments: ResearchExperiment[];
+  };
+
   // Full tenant facts (the former standalone /tenants page collapsed into the
   // Accounts pages — account = the root, one home per fact). The operator
   // credential sees contact_email + maintainer_pubkey in the tenants LIST
@@ -65,11 +84,22 @@
     3: 'T3 vetted',
   };
 
+  // Friendly research-standing labels (the coordinator names are e.g.
+  // "R1_VERIFIED"); fall back to the raw level for forward-compat.
+  const standingLabels: Record<number, string> = {
+    0: 'R0 · unverified',
+    1: 'R1 · verified',
+    2: 'R2 · established',
+    3: 'R3 · trusted',
+  };
+  const standingLabel = (level: number) => standingLabels[level] ?? `R${level}`;
+
   // page.params.id is `string | undefined` in the SvelteKit types but always
   // present for this [id] route at runtime; coalesce so it types as string.
   let accountId = $derived(page.params.id ?? '');
   let account = $state<Account | null>(null);
   let receiptStats = $state<ReceiptStats | null>(null);
+  let researchStanding = $state<ResearchStanding | null>(null);
   let boundWorkers = $state<Worker[]>([]);
   // Account → tenants, with full tenant facts (account ↔ tenants ↔ workers all
   // on this page). The tenants LIST response carries no account_id
@@ -91,12 +121,18 @@
     reason: string;
   } | null>(null);
 
+  let standingModal = $state<{
+    target: number;
+    reason: string;
+  } | null>(null);
+
   async function loadAccount(silent = false): Promise<boolean> {
     if (!silent) loading = true;
     try {
-      const [accountsRes, statsRes, workersRes, tenantsRes, appsRes] = await Promise.all([
+      const [accountsRes, statsRes, standingRes, workersRes, tenantsRes, appsRes] = await Promise.all([
         fetch('/api/v0/proxy/accounts'),
         fetch(`/api/v0/proxy/accounts/${encodeURIComponent(accountId)}/receipt-stats`),
+        fetch(`/api/v0/proxy/accounts/${encodeURIComponent(accountId)}/research-standing`),
         fetch('/api/v0/proxy/workers'),
         fetch('/api/v0/proxy/tenants'),
         fetch('/api/v0/proxy/tenant-applications'),
@@ -109,6 +145,10 @@
 
       if (statsRes.ok) {
         receiptStats = await statsRes.json();
+      }
+
+      if (standingRes.ok) {
+        researchStanding = await standingRes.json();
       }
 
       if (workersRes.ok) {
@@ -179,6 +219,40 @@
       await loadAccount();
     } catch (e) {
       alert(`${tierModal?.action} failed: ${(e as Error).message}`);
+    } finally {
+      actionLoading = false;
+    }
+  }
+
+  function showStandingModal() {
+    if (!researchStanding) return;
+    standingModal = {
+      target: Math.min(researchStanding.current + 1, 3),
+      reason: '',
+    };
+  }
+
+  async function submitStandingChange() {
+    if (!standingModal) return;
+    actionLoading = true;
+    try {
+      const r = await fetch(`/api/v0/proxy/accounts/${encodeURIComponent(accountId)}/actions/promote-research-standing`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ target: standingModal.target, reason: standingModal.reason }),
+      });
+      if (!r.ok) {
+        const detail = await r.json();
+        throw new Error(JSON.stringify(detail));
+      }
+      const result = await r.json();
+      standingModal = null;
+      if (result.gate_override && result.gate_warnings?.length) {
+        alert(`Promotion applied with gate override:\n\n${result.gate_warnings.map((w: string) => `• ${w}`).join('\n')}\n\nThis override is recorded in the audit log.`);
+      }
+      await loadAccount();
+    } catch (e) {
+      alert(`Research-standing promotion failed: ${(e as Error).message}`);
     } finally {
       actionLoading = false;
     }
@@ -271,6 +345,10 @@
         <dt>display name</dt><dd>{account.display_name || '—'}</dd>
         <dt>trust tier</dt>
         <dd><span class="badge tier-{account.trust_tier}">{tierNames[account.trust_tier] ?? `T${account.trust_tier}`}</span></dd>
+        {#if researchStanding}
+          <dt>research standing</dt>
+          <dd><span class="badge standing-{researchStanding.current}">{standingLabel(researchStanding.current)}</span></dd>
+        {/if}
         <dt>created</dt><dd class="mono">{new Date(account.created_at).toLocaleString()}</dd>
         <dt>status</dt>
         <dd>
@@ -340,6 +418,52 @@
           </table>
         </section>
       {/if}
+    {/if}
+
+    {#if researchStanding}
+      <section class="card">
+        <h2>Research standing</h2>
+        <p class="standing-eligibility">
+          <span class="badge standing-{researchStanding.current}">{standingLabel(researchStanding.current)}</span>
+          <span class="muted">
+            {researchStanding.distinct_clean_completed_verified} of {researchStanding.threshold} distinct, completed, attested experiments toward R2
+          </span>
+          {#if researchStanding.eligible_for_r2_review}
+            <span class="badge ok">eligible for R2 review</span>
+          {/if}
+        </p>
+
+        {#if researchStanding.experiments.length > 0}
+          <table class="inner-table">
+            <thead>
+              <tr>
+                <th>experiment</th>
+                <th>research class</th>
+                <th>completed</th>
+                <th>attestation</th>
+              </tr>
+            </thead>
+            <tbody>
+              {#each researchStanding.experiments as ex (ex.experiment_id)}
+                <tr>
+                  <td class="mono"><a href="/experiments/{encodeURIComponent(ex.experiment_id)}" class="id-link">{ex.experiment_id}</a></td>
+                  <td><span class="badge research-class-badge">{ex.research_class}</span></td>
+                  <td class="mono">{ex.completed_at ? new Date(ex.completed_at).toLocaleString() : '—'}</td>
+                  <td>
+                    {#if ex.rekor_log_index > 0}
+                      <span class="badge ok">Rekor {ex.rekor_log_index}</span>
+                    {:else}
+                      <span class="muted">—</span>
+                    {/if}
+                  </td>
+                </tr>
+              {/each}
+            </tbody>
+          </table>
+        {:else}
+          <p class="muted">No completed, attested experiments yet.</p>
+        {/if}
+      </section>
     {/if}
 
     <!-- Rendered only when this account has tenants or pending applications
@@ -424,6 +548,9 @@
           {#if account.trust_tier > 0}
             <button onclick={() => showTierModal('demote')} disabled={actionLoading}>demote</button>
           {/if}
+          {#if researchStanding && researchStanding.current < 3}
+            <button onclick={showStandingModal} disabled={actionLoading}>promote research-standing</button>
+          {/if}
           {#if account.suspended_at}
             <button onclick={() => (unsuspendModal = { reason: '' })} disabled={actionLoading}>unsuspend</button>
           {:else}
@@ -466,6 +593,27 @@
         <button onclick={() => (tierModal = null)}>cancel</button>
         <button class="primary" onclick={submitTierChange} disabled={actionLoading || !tierModal.reason.trim()}>
           {tierModal.action} to {tierNames[tierModal.targetTier] ?? `T${tierModal.targetTier}`}
+        </button>
+      </div>
+    </div>
+  {/if}
+
+  {#if standingModal}
+    <div class="modal-backdrop" onclick={() => (standingModal = null)}></div>
+    <div class="tier-modal">
+      <h2>Promote research standing</h2>
+      <p class="mono">{accountId}</p>
+      <p class="muted">Promotion is one step at a time ({standingLabel((standingModal.target ?? 1) - 1)} → {standingLabel(standingModal.target)}).</p>
+
+      <label>
+        Reason (required)
+        <textarea bind:value={standingModal.reason} rows="3" placeholder="Why is this research-standing promotion justified? (e.g., institutional affiliation verified, prior published work, per-experiment review passed)"></textarea>
+      </label>
+
+      <div class="modal-actions">
+        <button onclick={() => (standingModal = null)}>cancel</button>
+        <button class="primary" onclick={submitStandingChange} disabled={actionLoading || !standingModal.reason.trim()}>
+          promote to {standingLabel(standingModal.target)}
         </button>
       </div>
     </div>
@@ -541,6 +689,12 @@
   .badge.tier-1 { background: #1e3a5f; color: #93c5fd; }
   .badge.tier-2 { background: #14532d; color: #86efac; }
   .badge.tier-3 { background: #4c1d95; color: #c4b5fd; }
+  .badge.standing-0 { background: #1f2937; }
+  .badge.standing-1 { background: #1e3a5f; color: #93c5fd; }
+  .badge.standing-2 { background: #14532d; color: #86efac; }
+  .badge.standing-3 { background: #4c1d95; color: #c4b5fd; }
+  .research-class-badge { background: #312e81; color: #c4b5fd; }
+  .standing-eligibility { display: flex; align-items: center; gap: 0.6em; flex-wrap: wrap; margin: 0 0 0.75em; }
   .muted { color: #6b7280; font-size: 0.95em; }
   .errortext { color: #fca5a5; }
   .id-link { color: #a78bfa; text-decoration: none; }
