@@ -543,10 +543,10 @@
       <div class="action-row">
         {#if !account.retired_at}
           {#if account.trust_tier < 3}
-            <button class="primary" onclick={() => showTierModal('promote')} disabled={actionLoading}>promote</button>
+            <button class="primary" onclick={() => showTierModal('promote')} disabled={actionLoading}>promote tier</button>
           {/if}
           {#if account.trust_tier > 0}
-            <button onclick={() => showTierModal('demote')} disabled={actionLoading}>demote</button>
+            <button onclick={() => showTierModal('demote')} disabled={actionLoading}>demote tier</button>
           {/if}
           {#if researchStanding && researchStanding.current < 3}
             <button onclick={showStandingModal} disabled={actionLoading}>promote research-standing</button>
@@ -566,7 +566,7 @@
   {#if tierModal}
     <div class="modal-backdrop" onclick={() => (tierModal = null)}></div>
     <div class="tier-modal">
-      <h2>{tierModal.action === 'promote' ? 'Promote' : 'Demote'} account</h2>
+      <h2>{tierModal.action === 'promote' ? 'Promote' : 'Demote'} trust tier</h2>
       <p class="mono">{accountId}</p>
 
       <label>
