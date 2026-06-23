@@ -27,6 +27,11 @@
       identity_satisfied: boolean;
       ready: boolean;
     } | null;
+    // Research standing (0=R0…3=R3) + per-account R1→R2 review readiness (present
+    // only for R1 accounts, the promotable research tier): so a maintainer sees
+    // who's EARNED an R2 review at a glance, mirroring t2_readiness for trust tier.
+    research_standing: number;
+    r2_readiness: { distinct: number; threshold: number; ready: boolean } | null;
   };
 
   // Full tenant facts (the former standalone /tenants page collapsed into this
@@ -56,6 +61,16 @@
     3: 'T3 vetted',
   };
 
+  // Friendly research-standing labels (mirrors the account detail page); fall
+  // back to the raw level for forward-compat.
+  const standingLabels: Record<number, string> = {
+    0: 'R0 · unverified',
+    1: 'R1 · verified',
+    2: 'R2 · established',
+    3: 'R3 · trusted',
+  };
+  const standingLabel = (level: number) => standingLabels[level] ?? `R${level}`;
+
   let accounts = $state<Account[]>([]);
   let loading = $state(true);
   let error = $state<string | null>(null);
@@ -73,6 +88,9 @@
   let pendingAppsByAccount = $state<Record<string, number>>({});
 
   const knownAccountIds = $derived(new Set(accounts.map((a) => a.account_id)));
+  // Glance-level: how many loaded accounts are eligible for an R1→R2 review, so a
+  // maintainer notices without scanning every row.
+  const r2ReadyCount = $derived(accounts.filter((a) => a.r2_readiness?.ready).length);
   const tenantsByAccount = $derived.by(() => {
     const byAccount: Record<string, TenantEntry[]> = {};
     for (const t of tenantDirectory) {
@@ -302,6 +320,9 @@
   {:else if accounts.length === 0}
     <p class="muted">No accounts registered.</p>
   {:else}
+    {#if r2ReadyCount > 0}
+      <p class="r2-ready-summary">{r2ReadyCount} account{r2ReadyCount === 1 ? '' : 's'} eligible for R2 review</p>
+    {/if}
     <table>
       <thead>
         <tr>
@@ -324,12 +345,19 @@
             </td>
             <td>
               <span class="badge tier-{acct.trust_tier}">{tierNames[acct.trust_tier] ?? `T${acct.trust_tier}`}</span>
+              <span class="badge standing-{acct.research_standing}" title="Research standing">{standingLabel(acct.research_standing)}</span>
               {#if acct.t2_readiness}
                 <div class="t2-ready" title="Progress toward T1→T2 promotion (receipts + distinct experiments + identity gate).">
                   {#if acct.t2_readiness.ready}<span class="ready-badge">ready for T2</span>{/if}
                   <span class="rd" class:met={acct.t2_readiness.receipts >= acct.t2_readiness.receipts_required}>{acct.t2_readiness.receipts}/{acct.t2_readiness.receipts_required} receipts</span>
                   <span class="rd" class:met={acct.t2_readiness.distinct_experiments >= acct.t2_readiness.distinct_required}>{acct.t2_readiness.distinct_experiments}/{acct.t2_readiness.distinct_required} exps</span>
                   <span class="rd" class:met={acct.t2_readiness.identity_satisfied}>{acct.t2_readiness.identity_satisfied ? 'identity ✓' : 'identity pending'}</span>
+                </div>
+              {/if}
+              {#if acct.r2_readiness}
+                <div class="t2-ready" title="Progress toward R1→R2 review (distinct completed + attested experiments).">
+                  {#if acct.r2_readiness.ready}<span class="ready-badge">ready for R2 review</span>{/if}
+                  <span class="rd" class:met={acct.r2_readiness.distinct >= acct.r2_readiness.threshold}>{acct.r2_readiness.distinct}/{acct.r2_readiness.threshold} exps</span>
                 </div>
               {/if}
             </td>
@@ -563,6 +591,11 @@
   .badge.tier-1 { background: #1e3a5f; color: #93c5fd; }
   .badge.tier-2 { background: #14532d; color: #86efac; }
   .badge.tier-3 { background: #4c1d95; color: #c4b5fd; }
+  .badge.standing-0 { background: #1f2937; }
+  .badge.standing-1 { background: #1e3a5f; color: #93c5fd; }
+  .badge.standing-2 { background: #14532d; color: #86efac; }
+  .badge.standing-3 { background: #4c1d95; color: #c4b5fd; }
+  .r2-ready-summary { margin: 0 0 1em; padding: 0.4em 0.75em; display: inline-block; border-radius: 4px; font-size: 0.9em; font-weight: 600; background: #14532d; color: #86efac; border: 1px solid #22c55e; }
   .muted { color: #6b7280; font-size: 0.95em; }
   .errortext { color: #fca5a5; }
   .id-link { color: #a78bfa; text-decoration: none; }
