@@ -26,11 +26,12 @@
 
   // Owning-account context: a POINTER (chip → the account hub), NOT a copy. The
   // account-detail page stays the single synthesis surface (one home per fact);
-  // the list just links up to it + shows the tier/standing at a glance.
+  // the list links up to it + shows the AT-SUBMISSION trust tier (assessment_tier,
+  // the value that governed THIS run) — not the account's current tier, which is
+  // redundant (the experiment just inherits it). At-submission research-standing
+  // isn't snapshotted, so it isn't shown.
   type AcctRef = {
     account_id: string;
-    trust_tier: number;
-    research_standing: number;
     display_name: string | null;
   };
 
@@ -171,10 +172,11 @@
             <td>
               {#if tenantToAccount[exp.tenant_id]}
                 {@const a = tenantToAccount[exp.tenant_id]}
-                <a href="/accounts/{a.account_id}" class="acct-chip" title="Owning account — {a.display_name ?? a.account_id} (click for the full standing)">
+                <a href="/accounts/{a.account_id}" class="acct-chip" title="Owning account — {a.display_name ?? a.account_id} (click for the account's current standing)">
                   <span class="mono tenant">{exp.tenant_id}</span>
-                  <span class="badge tier-{a.trust_tier}">T{a.trust_tier}</span>
-                  <span class="badge standing-{a.research_standing}">R{a.research_standing}</span>
+                  {#if exp.assessment_tier != null}
+                    <span class="badge tier-{exp.assessment_tier}" title="trust tier at submission — what governed this run">T{exp.assessment_tier}</span>
+                  {/if}
                 </a>
               {:else}
                 <span class="mono">{exp.tenant_id}</span>
@@ -227,10 +229,6 @@
   .badge.tier-1 { background: #1e3a5f; color: #93c5fd; }
   .badge.tier-2 { background: #14532d; color: #86efac; }
   .badge.tier-3 { background: #4c1d95; color: #c4b5fd; }
-  .badge.standing-0 { background: #1f2937; }
-  .badge.standing-1 { background: #1e3a5f; color: #93c5fd; }
-  .badge.standing-2 { background: #14532d; color: #86efac; }
-  .badge.standing-3 { background: #4c1d95; color: #c4b5fd; }
   /* §9 #48 assessment chips */
   .assess-auto { background: #14532d; color: #86efac; }
   .assess-review { background: #854d0e; color: #fde68a; }
