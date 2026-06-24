@@ -130,8 +130,8 @@
 
   <h2 class="section">Auto-approval — what runs without your approval</h2>
   <p class="muted">
-    Two coordinator-authoritative levers — no LLM, no cost. Every experiment is still assessed and
-    queued; these only decide what auto-clears.
+    Two coordinator-authoritative levers that decide which experiments auto-clear without your
+    per-experiment approval — everything else is still assessed and queued for your review.
   </p>
 
   {#if loading}

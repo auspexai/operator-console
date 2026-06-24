@@ -159,7 +159,8 @@
       <thead>
         <tr>
           <th>experiment_id</th>
-          <th>account / tenant</th>
+          <th>account</th>
+          <th>tenant</th>
           <th>status</th>
           <th>assessment</th>
           <th>submitted</th>
@@ -173,15 +174,16 @@
               {#if tenantToAccount[exp.tenant_id]}
                 {@const a = tenantToAccount[exp.tenant_id]}
                 <a href="/accounts/{a.account_id}" class="acct-chip" title="Owning account — {a.display_name ?? a.account_id} (click for the account's current standing)">
-                  <span class="mono tenant">{exp.tenant_id}</span>
+                  <span class="mono acct-id">{a.account_id}</span>
                   {#if exp.assessment_tier != null}
                     <span class="badge tier-{exp.assessment_tier}" title="trust tier at submission — what governed this run">T{exp.assessment_tier}</span>
                   {/if}
                 </a>
               {:else}
-                <span class="mono">{exp.tenant_id}</span>
+                <span class="muted">—</span>
               {/if}
             </td>
+            <td class="mono">{exp.tenant_id}</td>
             <td><span class="badge {statusBadge[exp.status] ?? ''}">{exp.status}</span></td>
             <td title={assessmentTitle(exp)}>
               {#if exp.assessment_decision}
@@ -223,8 +225,8 @@
   .archived-badge { background: #374151; color: #6b7280; }
   /* owning-account chip (pointer to the account hub) */
   .acct-chip { display: inline-flex; align-items: center; gap: 0.35em; text-decoration: none; color: inherit; }
-  .acct-chip .tenant { color: #c4b5fd; }
-  .acct-chip:hover .tenant { text-decoration: underline; }
+  .acct-chip .acct-id { color: #a78bfa; }
+  .acct-chip:hover .acct-id { text-decoration: underline; }
   .badge.tier-0 { background: #1f2937; }
   .badge.tier-1 { background: #1e3a5f; color: #93c5fd; }
   .badge.tier-2 { background: #14532d; color: #86efac; }
