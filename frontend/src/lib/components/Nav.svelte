@@ -27,7 +27,10 @@
       label: 'Records',
       links: [
         { href: '/accounts', label: 'Accounts' },
-        { href: '/receipts', label: 'Receipts' },
+        // Receipt verification lives on the public, canonical verifier
+        // (verify.html — certs catalog + Rekor + authorized-signer roster),
+        // so the console links out rather than duplicating it.
+        { href: 'https://auspexai.network/verify.html', label: 'Verify', external: true },
         { href: '/audit', label: 'Audit' },
       ],
     },
