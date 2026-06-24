@@ -294,7 +294,7 @@
   </header>
   <Nav />
 
-  <p class="breadcrumb"><a href="/experiments">experiments</a> / <span class="mono">{experimentId}</span></p>
+  <p class="breadcrumb"><a href="/accounts">accounts</a> / <span class="mono">{experimentId}</span></p>
 
   {#if loading}
     <p class="muted">Loading experiment…</p>

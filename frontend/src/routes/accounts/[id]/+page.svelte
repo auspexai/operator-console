@@ -550,30 +550,6 @@
         <p class="muted">{boundWorkers.length} worker(s)</p>
       {/if}
     </section>
-
-    <section class="card">
-      <h2>Actions</h2>
-      <div class="action-row">
-        {#if !account.retired_at}
-          {#if account.trust_tier < 3}
-            <button class="primary" onclick={() => showTierModal('promote')} disabled={actionLoading}>promote tier</button>
-          {/if}
-          {#if account.trust_tier > 0}
-            <button onclick={() => showTierModal('demote')} disabled={actionLoading}>demote tier</button>
-          {/if}
-          {#if researchStanding && researchStanding.current < 3}
-            <button onclick={showStandingModal} disabled={actionLoading}>promote research-standing</button>
-          {/if}
-          {#if account.suspended_at}
-            <button onclick={() => (unsuspendModal = { reason: '' })} disabled={actionLoading}>unsuspend</button>
-          {:else}
-            <button class="danger" onclick={() => (suspendModal = { reason: '' })} disabled={actionLoading}>suspend</button>
-          {/if}
-        {:else}
-          <span class="muted">No actions available for retired accounts.</span>
-        {/if}
-      </div>
-    </section>
   {/if}
 
   {#snippet orcidVet(label: string)}
