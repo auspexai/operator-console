@@ -17,6 +17,10 @@
     suspension_reason: string | null;
     identity_verified_at: string | null;
     identity_verification_method: string | null;
+    // Linked ORCID iD (D8). Present on the list payload (coordinator
+    // /accounts), rendered beside the GitHub identity so a reviewer can vet
+    // without opening the detail page.
+    orcid_id: string | null;
     // Per-account T1→T2 promotion readiness (present only for T1 accounts): so a
     // maintainer sees who's EARNED it at a glance, not post-hoc via gate-override.
     t2_readiness: {
@@ -36,7 +40,9 @@
 
   // Full tenant facts (the former standalone /tenants page collapsed into this
   // page — account = the root, one home per fact). The operator credential sees
-  // contact_email + maintainer_pubkey in the tenants LIST response.
+  // contact_email + maintainer_pubkey in the tenants LIST response. (The wire
+  // field stays `maintainer_pubkey` — a frozen manifest-signature field — but is
+  // labelled "tenant signing key" since the credential rename, TenantKey.)
   type Tenant = {
     tenant_id: string;
     display_name: string | null;
@@ -76,6 +82,8 @@
   let error = $state<string | null>(null);
   let actionLoading = $state(false);
   let live = $state(false);
+  // Promotion-review filter: 'all' (browse) vs 'review' (work the queue).
+  let filterMode = $state<'all' | 'review'>('all');
 
   // Tenant directory, nested under accounts. The tenants LIST response carries
   // no account_id (operator-only field, exposed via the per-tenant linkage
@@ -88,9 +96,32 @@
   let pendingAppsByAccount = $state<Record<string, number>>({});
 
   const knownAccountIds = $derived(new Set(accounts.map((a) => a.account_id)));
-  // Glance-level: how many loaded accounts are eligible for an R1→R2 review, so a
-  // maintainer notices without scanning every row.
+
+  // --- Promotion-review queue: who's awaiting a decision, by promotion type ---
+  // Mechanical-ready (the data already says "earned" — show it): T1→T2 + R1→R2.
+  const t2ReadyCount = $derived(accounts.filter((a) => a.t2_readiness?.ready).length);
   const r2ReadyCount = $derived(accounts.filter((a) => a.r2_readiness?.ready).length);
+  const pendingAppsCount = $derived(
+    Object.values(pendingAppsByAccount).reduce((n, c) => n + c, 0),
+  );
+  const isActive = (a: Account) => !a.suspended_at && !a.retired_at;
+  // Judgment tiers (T2→T3, R2→R3): NO mechanical criterion by design (§3.3).
+  // Surface the candidate POOL (current T2 / R2 accounts) + soft signals, framed
+  // "review these" — never an auto "ready" flag.
+  const t3CandidateCount = $derived(accounts.filter((a) => isActive(a) && a.trust_tier === 2).length);
+  const r3CandidateCount = $derived(accounts.filter((a) => isActive(a) && a.research_standing === 2).length);
+  // In the review queue if any promotion decision is plausibly pending: a
+  // mechanical-ready tier, a judgment-tier candidate, or a pending tenant app.
+  const needsReview = (a: Account) =>
+    !!a.t2_readiness?.ready ||
+    !!a.r2_readiness?.ready ||
+    !!pendingAppsByAccount[a.account_id] ||
+    (isActive(a) && (a.trust_tier === 2 || a.research_standing === 2));
+  const reviewCount = $derived(accounts.filter(needsReview).length);
+  const visibleAccounts = $derived(
+    filterMode === 'review' ? accounts.filter(needsReview) : accounts,
+  );
+
   const tenantsByAccount = $derived.by(() => {
     const byAccount: Record<string, TenantEntry[]> = {};
     for (const t of tenantDirectory) {
@@ -160,6 +191,15 @@
     reason: string;
   } | null>(null);
 
+  // Research-standing promotion (one step up; there is no demote endpoint —
+  // R-demotion is named contestable in §5.4 RFC 0002 but not yet built).
+  let standingModal = $state<{
+    accountId: string;
+    current: number;
+    target: number;
+    reason: string;
+  } | null>(null);
+
   async function loadAccounts(silent = false): Promise<boolean> {
     if (!silent) loading = true;
     try {
@@ -207,6 +247,44 @@
       await loadAccounts();
     } catch (e) {
       alert(`${tierModal?.action} failed: ${(e as Error).message}`);
+    } finally {
+      actionLoading = false;
+    }
+  }
+
+  function showStandingModal(accountId: string, currentStanding: number) {
+    standingModal = {
+      accountId,
+      current: currentStanding,
+      target: Math.min(currentStanding + 1, 3),
+      reason: '',
+    };
+  }
+
+  async function submitStandingChange() {
+    if (!standingModal) return;
+    actionLoading = true;
+    try {
+      const r = await fetch(
+        `/api/v0/proxy/accounts/${standingModal.accountId}/actions/promote-research-standing`,
+        {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ target: standingModal.target, reason: standingModal.reason }),
+        },
+      );
+      if (!r.ok) {
+        const detail = await r.json();
+        throw new Error(JSON.stringify(detail));
+      }
+      const result = await r.json();
+      standingModal = null;
+      if (result.gate_override && result.gate_warnings?.length) {
+        alert(`Promotion applied with gate override:\n\n${result.gate_warnings.map((w: string) => `• ${w}`).join('\n')}\n\nThis override is recorded in the audit log.`);
+      }
+      await loadAccounts();
+    } catch (e) {
+      alert(`Research-standing promotion failed: ${(e as Error).message}`);
     } finally {
       actionLoading = false;
     }
@@ -320,32 +398,81 @@
   {:else if accounts.length === 0}
     <p class="muted">No accounts registered.</p>
   {:else}
-    {#if r2ReadyCount > 0}
-      <p class="r2-ready-summary">{r2ReadyCount} account{r2ReadyCount === 1 ? '' : 's'} eligible for R2 review</p>
+    {#if reviewCount > 0}
+      <section class="review-banner">
+        <div class="review-head">
+          <h2>Needs review</h2>
+          <div class="filter-toggle" role="group" aria-label="Filter accounts">
+            <button class:active={filterMode === 'all'} onclick={() => (filterMode = 'all')}>all</button>
+            <button class:active={filterMode === 'review'} onclick={() => (filterMode = 'review')}
+              >needs review ({reviewCount})</button
+            >
+          </div>
+        </div>
+        <div class="review-chips">
+          {#if t2ReadyCount > 0}<span class="chip ready">{t2ReadyCount} ready for T2</span>{/if}
+          {#if r2ReadyCount > 0}<span class="chip ready">{r2ReadyCount} ready for R2 review</span>{/if}
+          {#if pendingAppsCount > 0}<a class="chip pending" href="/requests">{pendingAppsCount} pending app{pendingAppsCount === 1 ? '' : 's'}</a>{/if}
+        </div>
+        {#if t3CandidateCount > 0 || r3CandidateCount > 0}
+          <p class="review-candidates">
+            Candidates to consider:
+            {#if t3CandidateCount > 0}<strong>{t3CandidateCount}</strong> for T3{/if}{#if t3CandidateCount > 0 && r3CandidateCount > 0}<span> · </span>{/if}{#if r3CandidateCount > 0}<strong>{r3CandidateCount}</strong> for R3{/if}
+            <span class="muted">— judgment tiers; verify identity / ORCID + a clean record out-of-band, no mechanical "ready"</span>
+          </p>
+        {/if}
+      </section>
     {/if}
     <table>
       <thead>
         <tr>
           <th>account_id</th>
           <th>identity</th>
-          <th>tier</th>
-          <th>tenants</th>
+          <th>trust / standing</th>
           <th>created</th>
           <th>status</th>
           <th>actions</th>
         </tr>
       </thead>
       <tbody>
-        {#each accounts as acct (acct.account_id)}
-          <tr class:suspended={!!acct.suspended_at} class:retired={!!acct.retired_at}>
+        {#each visibleAccounts as acct (acct.account_id)}
+          <tr class:suspended={!!acct.suspended_at} class:retired={!!acct.retired_at} class:needs-review={filterMode === 'all' && needsReview(acct)}>
             <td class="mono"><a href="/accounts/{acct.account_id}" class="id-link">{acct.account_id}</a></td>
-            <td>
-              <span class="badge idp-badge">{acct.idp}</span>
-              {acct.display_name || acct.idp_sub}
+            <td class="identity-cell">
+              <div class="identity-line">
+                <span class="badge idp-badge">{acct.idp}</span>
+                {acct.display_name || acct.idp_sub}
+              </div>
+              {#if acct.orcid_id}
+                <a
+                  class="orcid-chip"
+                  href={`https://orcid.org/${acct.orcid_id}`}
+                  target="_blank"
+                  rel="noopener noreferrer"
+                  title="Linked ORCID — open the live record (affiliations + publications) to vet before promoting (T2+ / R3)."
+                >
+                  <span class="badge orcid-badge">orcid</span>{acct.orcid_id} ↗
+                </a>
+              {/if}
             </td>
             <td>
-              <span class="badge tier-{acct.trust_tier}">{tierNames[acct.trust_tier] ?? `T${acct.trust_tier}`}</span>
-              <span class="badge standing-{acct.research_standing}" title="Research standing">{standingLabel(acct.research_standing)}</span>
+              <div class="axis">
+                <span class="badge tier-{acct.trust_tier}">{tierNames[acct.trust_tier] ?? `T${acct.trust_tier}`}</span>
+                {#if !acct.retired_at}
+                  {#if acct.trust_tier < 3}
+                    <button class="icon-btn" title="Promote trust tier" aria-label="Promote trust tier" onclick={() => showTierModal(acct.account_id, 'promote', acct.trust_tier)} disabled={actionLoading}>▲</button>
+                  {/if}
+                  {#if acct.trust_tier > 0}
+                    <button class="icon-btn" title="Demote trust tier" aria-label="Demote trust tier" onclick={() => showTierModal(acct.account_id, 'demote', acct.trust_tier)} disabled={actionLoading}>▼</button>
+                  {/if}
+                {/if}
+              </div>
+              <div class="axis">
+                <span class="badge standing-{acct.research_standing}" title="Research standing">{standingLabel(acct.research_standing)}</span>
+                {#if !acct.retired_at && acct.research_standing < 3}
+                  <button class="icon-btn" title="Promote research standing (one step — human review)" aria-label="Promote research standing" onclick={() => showStandingModal(acct.account_id, acct.research_standing)} disabled={actionLoading}>▲</button>
+                {/if}
+              </div>
               {#if acct.t2_readiness}
                 <div class="t2-ready" title="Progress toward T1→T2 promotion (receipts + distinct experiments + identity gate).">
                   {#if acct.t2_readiness.ready}<span class="ready-badge">ready for T2</span>{/if}
@@ -361,16 +488,6 @@
                 </div>
               {/if}
             </td>
-            <td class="linkage-cell">
-              <!-- Empty for most volunteers — only researcher accounts carry tenants/applications.
-                   Tenant facts render nested below the row (the former /tenants page's home). -->
-              {#if (tenantsByAccount[acct.account_id] ?? []).length > 0}
-                <span class="muted">{tenantsByAccount[acct.account_id].length} tenant{tenantsByAccount[acct.account_id].length === 1 ? '' : 's'} ↓</span>
-              {/if}
-              {#if pendingAppsByAccount[acct.account_id]}
-                <a href="/requests" class="pending-chip" title="pending tenant application(s) — review on the requests page">{pendingAppsByAccount[acct.account_id]} pending app{pendingAppsByAccount[acct.account_id] === 1 ? '' : 's'}</a>
-              {/if}
-            </td>
             <td class="mono">{new Date(acct.created_at).toLocaleDateString()}</td>
             <td>
               {#if acct.retired_at}
@@ -383,19 +500,16 @@
               {:else}
                 <span class="badge ok">active</span>
               {/if}
+              {#if pendingAppsByAccount[acct.account_id]}
+                <a href="/requests" class="pending-chip" title="pending tenant application(s) — review on the requests page">⚑ {pendingAppsByAccount[acct.account_id]} app{pendingAppsByAccount[acct.account_id] === 1 ? '' : 's'}</a>
+              {/if}
             </td>
             <td class="actions">
               {#if !acct.retired_at}
-                {#if acct.trust_tier < 3}
-                  <button onclick={() => showTierModal(acct.account_id, 'promote', acct.trust_tier)} disabled={actionLoading}>promote</button>
-                {/if}
-                {#if acct.trust_tier > 0}
-                  <button onclick={() => showTierModal(acct.account_id, 'demote', acct.trust_tier)} disabled={actionLoading}>demote</button>
-                {/if}
                 {#if acct.suspended_at}
-                  <button onclick={() => (unsuspendModal = { accountId: acct.account_id, reason: '' })} disabled={actionLoading}>unsuspend</button>
+                  <button class="icon-btn" title="Unsuspend account (unquarantines its workers)" aria-label="Unsuspend account" onclick={() => (unsuspendModal = { accountId: acct.account_id, reason: '' })} disabled={actionLoading}>↺</button>
                 {:else}
-                  <button class="danger" onclick={() => (suspendModal = { accountId: acct.account_id, reason: '' })} disabled={actionLoading}>suspend</button>
+                  <button class="icon-btn danger" title="Suspend account (quarantines its workers)" aria-label="Suspend account" onclick={() => (suspendModal = { accountId: acct.account_id, reason: '' })} disabled={actionLoading}>⊘</button>
                 {/if}
               {/if}
             </td>
@@ -405,7 +519,7 @@
                  the root). Full tenant facts, formerly the /tenants page. -->
             <tr class="tenant-nest-row">
               <td class="nest-indent" aria-hidden="true"></td>
-              <td colspan="6">
+              <td colspan="5">
                 {#each tenantsByAccount[acct.account_id] as t (t.tenant_id)}
                   <div class="tenant-block">
                     <div class="tenant-head">
@@ -416,7 +530,7 @@
                     <dl class="tenant-facts">
                       <dt>contact</dt><dd>{t.contact_email ?? t.contact_public ?? '—'}</dd>
                       <dt>registered</dt><dd class="mono">{t.registered_at ? new Date(t.registered_at).toLocaleString() : '—'}</dd>
-                      <dt>maintainer pubkey</dt><dd class="mono" title={t.maintainer_pubkey ?? undefined}>{shortHex(t.maintainer_pubkey)}</dd>
+                      <dt>tenant signing key</dt><dd class="mono" title={t.maintainer_pubkey ?? undefined}>{shortHex(t.maintainer_pubkey)}</dd>
                       {#if t.description}<dt>description</dt><dd>{t.description}</dd>{/if}
                     </dl>
                   </div>
@@ -427,7 +541,11 @@
         {/each}
       </tbody>
     </table>
-    <p class="muted">{accounts.length} account(s)</p>
+    {#if filterMode === 'review'}
+      <p class="muted">{visibleAccounts.length} of {accounts.length} account(s) — awaiting a promotion decision</p>
+    {:else}
+      <p class="muted">{accounts.length} account(s)</p>
+    {/if}
   {/if}
 
   <!-- Tenants with NO account binding (legacy hand-created registrations) —
@@ -454,7 +572,7 @@
           <dl class="tenant-facts">
             <dt>contact</dt><dd>{t.contact_email ?? t.contact_public ?? '—'}</dd>
             <dt>registered</dt><dd class="mono">{t.registered_at ? new Date(t.registered_at).toLocaleString() : '—'}</dd>
-            <dt>maintainer pubkey</dt><dd class="mono" title={t.maintainer_pubkey ?? undefined}>{shortHex(t.maintainer_pubkey)}</dd>
+            <dt>tenant signing key</dt><dd class="mono" title={t.maintainer_pubkey ?? undefined}>{shortHex(t.maintainer_pubkey)}</dd>
             {#if t.description}<dt>description</dt><dd>{t.description}</dd>{/if}
           </dl>
           {#if accounts.length > 0}
@@ -468,7 +586,7 @@
   {#if tierModal}
     <div class="modal-backdrop" onclick={() => (tierModal = null)}></div>
     <div class="tier-modal">
-      <h2>{tierModal.action === 'promote' ? 'Promote' : 'Demote'} account</h2>
+      <h2>{tierModal.action === 'promote' ? 'Promote' : 'Demote'} trust tier</h2>
       <p class="mono">{tierModal.accountId}</p>
 
       <label>
@@ -495,6 +613,33 @@
         <button onclick={() => (tierModal = null)}>cancel</button>
         <button class="primary" onclick={submitTierChange} disabled={actionLoading || !tierModal.reason.trim()}>
           {tierModal.action} to {tierNames[tierModal.targetTier] ?? `T${tierModal.targetTier}`}
+        </button>
+      </div>
+    </div>
+  {/if}
+
+  {#if standingModal}
+    <div class="modal-backdrop" onclick={() => (standingModal = null)}></div>
+    <div class="tier-modal">
+      <h2>Promote research standing</h2>
+      <p class="mono">{standingModal.accountId}</p>
+      <p class="standing-step">{standingLabel(standingModal.current)} → <strong>{standingLabel(standingModal.target)}</strong></p>
+
+      {#if standingModal.target === 2}
+        <p class="warn-text">R2 is an ethics-review gate — promote when the review has passed (warn-but-allow if the competence floor isn't met; recorded either way).</p>
+      {:else if standingModal.target === 3}
+        <p class="warn-text">R3 is a trust judgment, not a competence threshold — verify the researcher's real identity / affiliation (e.g. a linked ORCID) out-of-band before granting high-risk eligibility.</p>
+      {/if}
+
+      <label>
+        Reason (required)
+        <textarea bind:value={standingModal.reason} rows="3" placeholder="Why is this research-standing promotion justified? (e.g., ethics review passed; affiliation vetted via the linked ORCID record)"></textarea>
+      </label>
+
+      <div class="modal-actions">
+        <button onclick={() => (standingModal = null)}>cancel</button>
+        <button class="primary" onclick={submitStandingChange} disabled={actionLoading || !standingModal.reason.trim()}>
+          promote to {standingLabel(standingModal.target)}
         </button>
       </div>
     </div>
@@ -578,9 +723,10 @@
   .brand-link { text-decoration: none; color: inherit; }
   table { width: 100%; border-collapse: collapse; font-size: 0.9em; }
   th { text-align: left; padding: 0.5em; border-bottom: 2px solid #2a2e3a; color: #9ca3af; font-weight: 500; }
-  td { padding: 0.5em; border-bottom: 1px solid #1a1e2a; }
+  td { padding: 0.5em; border-bottom: 1px solid #1a1e2a; vertical-align: top; }
   tr.suspended { background: rgba(127, 29, 29, 0.15); }
   tr.retired { opacity: 0.5; }
+  tr.needs-review td { box-shadow: inset 3px 0 0 #a78bfa; }
   .mono { font-family: ui-monospace, monospace; font-size: 0.85em; }
   .badge { display: inline-block; padding: 0.1em 0.55em; border-radius: 3px; font-size: 0.85em; font-weight: 500; background: #2a2e3a; color: #9ca3af; }
   .badge.ok { background: #14532d; color: #86efac; }
@@ -595,18 +741,38 @@
   .badge.standing-1 { background: #1e3a5f; color: #93c5fd; }
   .badge.standing-2 { background: #14532d; color: #86efac; }
   .badge.standing-3 { background: #4c1d95; color: #c4b5fd; }
-  .r2-ready-summary { margin: 0 0 1em; padding: 0.4em 0.75em; display: inline-block; border-radius: 4px; font-size: 0.9em; font-weight: 600; background: #14532d; color: #86efac; border: 1px solid #22c55e; }
+  /* identity cell: github line + linked ORCID below */
+  .identity-cell { line-height: 1.5; }
+  .identity-line { display: flex; align-items: center; flex-wrap: wrap; }
+  .orcid-chip { display: inline-flex; align-items: center; gap: 0.25em; margin-top: 0.25em; font-family: ui-monospace, monospace; font-size: 0.8em; color: #a6ce39; text-decoration: none; }
+  .orcid-chip:hover { text-decoration: underline; }
+  .orcid-badge { background: #1f2a14; color: #a6ce39; margin-right: 0.15em; }
+  /* two-axis inline promote/demote controls, beside the badge they change */
+  .axis { display: flex; align-items: center; gap: 0.3em; }
+  .axis + .axis { margin-top: 0.3em; }
+  /* Needs-review banner (the promotion-review queue) */
+  .review-banner { margin: 0 0 1.25em; padding: 0.75em 1em; border: 1px solid #2a2e3a; border-left: 3px solid #a78bfa; border-radius: 6px; background: #11131c; }
+  .review-head { display: flex; align-items: center; justify-content: space-between; gap: 1em; flex-wrap: wrap; }
+  .review-head h2 { margin: 0; font-size: 1.05em; font-weight: 600; color: #fff; }
+  .filter-toggle { display: inline-flex; border: 1px solid #2a2e3a; border-radius: 5px; overflow: hidden; }
+  .filter-toggle button { background: transparent; border: none; border-radius: 0; color: #9ca3af; padding: 0.25em 0.7em; font-size: 0.82em; }
+  .filter-toggle button.active { background: #a78bfa; color: #0a0e1a; font-weight: 600; }
+  .filter-toggle button + button { border-left: 1px solid #2a2e3a; }
+  .review-chips { display: flex; flex-wrap: wrap; gap: 0.4em; margin-top: 0.6em; }
+  .chip { display: inline-block; padding: 0.1em 0.6em; border-radius: 999px; font-size: 0.82em; font-weight: 600; text-decoration: none; }
+  .chip.ready { background: #14532d; color: #86efac; border: 1px solid #22c55e; }
+  .chip.pending { background: #78350f; color: #fcd34d; border: 1px solid #b45309; }
+  .review-candidates { margin: 0.6em 0 0; font-size: 0.85em; color: #c4b5fd; }
   .muted { color: #6b7280; font-size: 0.95em; }
   .errortext { color: #fca5a5; }
   .id-link { color: #a78bfa; text-decoration: none; }
   .id-link:hover { text-decoration: underline; }
-  /* T1→T2 promotion readiness (per-account, in the tier cell) */
+  /* T1→T2 / R1→R2 promotion readiness (per-account, in the tier cell) */
   .t2-ready { margin-top: 0.35em; display: flex; flex-direction: column; gap: 0.12em; }
   .ready-badge { align-self: flex-start; padding: 0.05em 0.5em; border-radius: 3px; font-size: 0.78em; font-weight: 600; background: #14532d; color: #86efac; border: 1px solid #22c55e; }
   .rd { font-size: 0.78em; color: #9ca3af; font-variant-numeric: tabular-nums; }
   .rd.met { color: #6ee7a0; }
-  .linkage-cell .pending-chip { margin-left: 0.3em; }
-  .pending-chip { display: inline-block; padding: 0.1em 0.55em; border-radius: 3px; font-size: 0.85em; font-weight: 500; background: #78350f; color: #fcd34d; text-decoration: none; }
+  .pending-chip { display: inline-block; margin-left: 0.3em; padding: 0.1em 0.55em; border-radius: 3px; font-size: 0.8em; font-weight: 500; background: #78350f; color: #fcd34d; text-decoration: none; white-space: nowrap; }
   .pending-chip:hover { background: #92400e; }
   tr.tenant-nest-row td { background: #0d1119; border-bottom: 1px solid #1a1e2a; }
   td.nest-indent { width: 1.5em; }
@@ -628,6 +794,11 @@
   button { background: #1f2937; border: 1px solid #2a2e3a; color: #d4d4dc; padding: 0.25em 0.65em; border-radius: 4px; cursor: pointer; font: inherit; font-size: 0.85em; }
   button:hover { background: #2a2e3a; }
   button:disabled { opacity: 0.5; cursor: not-allowed; }
+  /* compact glyph buttons for inline promote/demote + suspend */
+  .icon-btn { padding: 0.05em 0.4em; font-size: 0.8em; line-height: 1.4; color: #9ca3af; }
+  .icon-btn:hover:not(:disabled) { background: #2a2e3a; color: #e5e7eb; }
+  .icon-btn.danger { color: #f87171; border-color: #4c1d1d; }
+  .icon-btn.danger:hover:not(:disabled) { background: #7f1d1d; color: #fca5a5; }
   button.primary { background: #a78bfa; color: #0a0e1a; border-color: #a78bfa; font-weight: 600; }
   button.primary:hover { background: #c4b5fd; }
   button.danger { background: #7f1d1d; border-color: #7f1d1d; color: #fca5a5; }
@@ -639,6 +810,7 @@
   .tier-modal label { display: block; margin: 0.75em 0 0.25em; color: #9ca3af; font-size: 0.9em; }
   .tier-modal select, .tier-modal textarea { width: 100%; padding: 0.4em; background: #0a0e1a; border: 1px solid #2a2e3a; border-radius: 4px; color: #d4d4dc; font: inherit; font-size: 0.9em; resize: vertical; }
   .tier-modal textarea:focus { outline: none; border-color: #a78bfa; }
+  .standing-step { margin: 0.25em 0 0; color: #c4b5fd; font-size: 0.9em; }
   .modal-actions { display: flex; gap: 0.75em; justify-content: flex-end; margin-top: 1.25em; }
   .warn-text { color: #fbbf24; font-size: 0.9em; margin: 0.25em 0 0.5em; }
 </style>
