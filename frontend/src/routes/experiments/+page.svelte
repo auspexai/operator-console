@@ -161,7 +161,6 @@
           <th>account / tenant</th>
           <th>status</th>
           <th>assessment</th>
-          <th>replication</th>
           <th>submitted</th>
         </tr>
       </thead>
@@ -190,7 +189,6 @@
                 <span class="muted">—</span>
               {/if}
             </td>
-            <td>target {exp.replication_target ?? '—'} / floor {exp.replication_floor ?? '—'} ({exp.integrity_policy ?? 'standard'})</td>
             <td class="mono">{new Date(exp.submitted_at).toLocaleDateString()}</td>
           </tr>
         {/each}

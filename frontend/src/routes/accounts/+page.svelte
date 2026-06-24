@@ -3,6 +3,7 @@
   import Nav from '$lib/components/Nav.svelte';
   import LiveDot from '$lib/components/LiveDot.svelte';
   import { autoRefresh } from '$lib/live';
+  import TenantApplications from '$lib/components/TenantApplications.svelte';
 
   type Account = {
     account_id: string;
@@ -458,7 +459,7 @@
         <div class="review-chips">
           {#if t2ReadyCount > 0}<span class="chip ready">{t2ReadyCount} ready for T2</span>{/if}
           {#if r2ReadyCount > 0}<span class="chip ready">{r2ReadyCount} ready for R2 review</span>{/if}
-          {#if pendingAppsCount > 0}<a class="chip pending" href="/requests">{pendingAppsCount} pending app{pendingAppsCount === 1 ? '' : 's'}</a>{/if}
+          {#if pendingAppsCount > 0}<a class="chip pending" href="#applications">{pendingAppsCount} pending app{pendingAppsCount === 1 ? '' : 's'}</a>{/if}
         </div>
         {#if t3CandidateCount > 0 || r3CandidateCount > 0}
           <p class="review-candidates">
@@ -469,6 +470,8 @@
         {/if}
       </section>
     {/if}
+    <TenantApplications onresolved={() => refreshAll(true)} />
+
     <table>
       <thead>
         <tr>
@@ -564,7 +567,7 @@
                 {/if}
               {/if}
               {#if pendingAppsByAccount[acct.account_id]}
-                <a href="/requests" class="pending-chip" title="pending tenant application(s) — review on the requests page">⚑ {pendingAppsByAccount[acct.account_id]} app{pendingAppsByAccount[acct.account_id] === 1 ? '' : 's'}</a>
+                <a href="#applications" class="pending-chip" title="pending tenant application(s) — review on the requests page">⚑ {pendingAppsByAccount[acct.account_id]} app{pendingAppsByAccount[acct.account_id] === 1 ? '' : 's'}</a>
               {/if}
             </td>
           </tr>

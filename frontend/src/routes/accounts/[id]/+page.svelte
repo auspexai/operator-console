@@ -505,7 +505,7 @@
         {/if}
         {#if pendingAppCount > 0}
           <p class="pending-line">
-            <a href="/requests" class="pending-chip">{pendingAppCount} pending tenant application{pendingAppCount === 1 ? '' : 's'}</a>
+            <a href="/accounts#applications" class="pending-chip">{pendingAppCount} pending tenant application{pendingAppCount === 1 ? '' : 's'}</a>
             <span class="muted">— review on the requests page</span>
           </p>
         {/if}

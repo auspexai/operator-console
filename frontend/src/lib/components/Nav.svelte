@@ -20,7 +20,6 @@
         { href: '/experiments', label: 'Experiments' },
         { href: '/workers', label: 'Workers' },
         { href: '/models', label: 'Models' },
-        { href: '/requests', label: 'Requests' },
       ],
     },
     {

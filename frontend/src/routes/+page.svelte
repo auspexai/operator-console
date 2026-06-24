@@ -827,7 +827,7 @@
                     <td class="muted">{app.affiliation}</td>
                     <td class="mono">{app.requested_tenant_id}</td>
                     <td><span class="badge">{app.status}</span></td>
-                    <td><a href="/requests">review →</a></td>
+                    <td><a href="/accounts#applications">review →</a></td>
                   </tr>
                 {/each}
               </tbody>
@@ -869,7 +869,7 @@
                       {#if req.assessment_draft}<span class="badge warnbadge">auto-draft</span>
                       {:else if !req.assessment}<span class="muted">no assessment</span>{/if}
                     </td>
-                    <td><a href="/requests">review →</a></td>
+                    <td><a href="/accounts#applications">review →</a></td>
                   </tr>
                 {/each}
               </tbody>
