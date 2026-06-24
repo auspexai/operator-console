@@ -431,7 +431,6 @@
           <th>trust / standing</th>
           <th>created</th>
           <th>status</th>
-          <th>actions</th>
         </tr>
       </thead>
       <tbody>
@@ -489,28 +488,37 @@
               {/if}
             </td>
             <td class="mono">{new Date(acct.created_at).toLocaleDateString()}</td>
-            <td>
+            <td class="status-cell">
+              <!-- Consolidated lifecycle status + suspend control: good standing
+                   (green) ⇄ suspended (red). Retired is terminal (no toggle).
+                   Click opens the reason-required modal — suspend quarantines
+                   the account's workers, so it is never a frictionless flip. -->
               {#if acct.retired_at}
                 <span class="badge retired-badge">retired</span>
-              {:else if acct.suspended_at}
-                <span class="badge suspended-badge">suspended</span>
-                {#if acct.suspension_reason}
-                  <span class="muted"> — {acct.suspension_reason}</span>
-                {/if}
               {:else}
-                <span class="badge ok">active</span>
+                <button
+                  class="standing-toggle"
+                  class:suspended={!!acct.suspended_at}
+                  aria-pressed={!acct.suspended_at}
+                  aria-label={acct.suspended_at ? 'Suspended — lift suspension' : 'In good standing — suspend account'}
+                  title={acct.suspended_at
+                    ? `Suspended${acct.suspension_reason ? `: ${acct.suspension_reason}` : ''} — click to lift`
+                    : "In good standing — click to suspend (quarantines this account's workers)"}
+                  onclick={() =>
+                    acct.suspended_at
+                      ? (unsuspendModal = { accountId: acct.account_id, reason: '' })
+                      : (suspendModal = { accountId: acct.account_id, reason: '' })}
+                  disabled={actionLoading}
+                >
+                  <span class="track"><span class="knob"></span></span>
+                  <span class="toggle-label">{acct.suspended_at ? 'suspended' : 'good'}</span>
+                </button>
+                {#if acct.suspended_at && acct.suspension_reason}
+                  <div class="suspend-reason muted" title={acct.suspension_reason}>{acct.suspension_reason}</div>
+                {/if}
               {/if}
               {#if pendingAppsByAccount[acct.account_id]}
                 <a href="/requests" class="pending-chip" title="pending tenant application(s) — review on the requests page">⚑ {pendingAppsByAccount[acct.account_id]} app{pendingAppsByAccount[acct.account_id] === 1 ? '' : 's'}</a>
-              {/if}
-            </td>
-            <td class="actions">
-              {#if !acct.retired_at}
-                {#if acct.suspended_at}
-                  <button class="icon-btn" title="Unsuspend account (unquarantines its workers)" aria-label="Unsuspend account" onclick={() => (unsuspendModal = { accountId: acct.account_id, reason: '' })} disabled={actionLoading}>↺</button>
-                {:else}
-                  <button class="icon-btn danger" title="Suspend account (quarantines its workers)" aria-label="Suspend account" onclick={() => (suspendModal = { accountId: acct.account_id, reason: '' })} disabled={actionLoading}>⊘</button>
-                {/if}
               {/if}
             </td>
           </tr>
@@ -519,7 +527,7 @@
                  the root). Full tenant facts, formerly the /tenants page. -->
             <tr class="tenant-nest-row">
               <td class="nest-indent" aria-hidden="true"></td>
-              <td colspan="5">
+              <td colspan="4">
                 {#each tenantsByAccount[acct.account_id] as t (t.tenant_id)}
                   <div class="tenant-block">
                     <div class="tenant-head">
@@ -729,8 +737,6 @@
   tr.needs-review td { box-shadow: inset 3px 0 0 #a78bfa; }
   .mono { font-family: ui-monospace, monospace; font-size: 0.85em; }
   .badge { display: inline-block; padding: 0.1em 0.55em; border-radius: 3px; font-size: 0.85em; font-weight: 500; background: #2a2e3a; color: #9ca3af; }
-  .badge.ok { background: #14532d; color: #86efac; }
-  .suspended-badge { background: #7f1d1d; color: #fca5a5; }
   .retired-badge { background: #374151; color: #6b7280; }
   .idp-badge { background: #1e3a5f; color: #93c5fd; margin-right: 0.4em; }
   .badge.tier-0 { background: #1f2937; }
@@ -790,15 +796,25 @@
   .unlinked-section h2 { font-size: 1.05em; font-weight: 600; color: #fff; margin: 0 0 0.25em; }
   .unlinked-section .tenant-block { background: #0d1119; border: 1px solid #1a1e2a; border-radius: 8px; padding: 0.6em 0.85em; margin: 0.5em 0; }
   .unlinked-section .tenant-block + .tenant-block { border-top: 1px solid #1a1e2a; }
-  .actions { white-space: nowrap; }
   button { background: #1f2937; border: 1px solid #2a2e3a; color: #d4d4dc; padding: 0.25em 0.65em; border-radius: 4px; cursor: pointer; font: inherit; font-size: 0.85em; }
   button:hover { background: #2a2e3a; }
   button:disabled { opacity: 0.5; cursor: not-allowed; }
-  /* compact glyph buttons for inline promote/demote + suspend */
+  /* compact glyph buttons for inline promote/demote */
   .icon-btn { padding: 0.05em 0.4em; font-size: 0.8em; line-height: 1.4; color: #9ca3af; }
   .icon-btn:hover:not(:disabled) { background: #2a2e3a; color: #e5e7eb; }
-  .icon-btn.danger { color: #f87171; border-color: #4c1d1d; }
-  .icon-btn.danger:hover:not(:disabled) { background: #7f1d1d; color: #fca5a5; }
+  /* consolidated good-standing ⇄ suspended toggle (replaces the status badge +
+     the separate suspend/unsuspend button — one control, one column) */
+  .status-cell { white-space: nowrap; }
+  .standing-toggle { display: inline-flex; align-items: center; gap: 0.45em; background: transparent; border: none; padding: 0.1em 0; cursor: pointer; font: inherit; }
+  .standing-toggle:hover:not(:disabled) .track { filter: brightness(1.18); }
+  .standing-toggle:disabled { opacity: 0.5; cursor: not-allowed; }
+  .standing-toggle .track { position: relative; width: 2.2em; height: 1.15em; border-radius: 999px; background: #14532d; border: 1px solid #22c55e; transition: background 0.12s, border-color 0.12s; flex: none; }
+  .standing-toggle .knob { position: absolute; top: 50%; transform: translateY(-50%); left: calc(100% - 0.85em - 0.14em); width: 0.85em; height: 0.85em; border-radius: 50%; background: #86efac; transition: left 0.12s; }
+  .standing-toggle.suspended .track { background: #7f1d1d; border-color: #f87171; }
+  .standing-toggle.suspended .knob { left: 0.14em; background: #fca5a5; }
+  .toggle-label { font-size: 0.82em; font-weight: 600; color: #86efac; }
+  .standing-toggle.suspended .toggle-label { color: #fca5a5; }
+  .suspend-reason { margin-top: 0.2em; font-size: 0.82em; max-width: 16em; white-space: normal; }
   button.primary { background: #a78bfa; color: #0a0e1a; border-color: #a78bfa; font-weight: 600; }
   button.primary:hover { background: #c4b5fd; }
   button.danger { background: #7f1d1d; border-color: #7f1d1d; color: #fca5a5; }
