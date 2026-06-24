@@ -113,6 +113,12 @@ def build_router(config) -> APIRouter:
     async def list_certifications(request: Request) -> Any:
         return await _proxy_get("/api/v0/certifications", _headers(request))
 
+    @router.get("/certifications/staleness")
+    async def certification_staleness(request: Request) -> Any:
+        # Maintainer-only on the coordinator: per active cert, whether a newer
+        # build was submitted (re-certify signal). Defined before the {pkg} route.
+        return await _proxy_get("/api/v0/certifications/staleness", _headers(request))
+
     @router.post("/certifications/{package_sha256}/revoke")
     async def revoke_certification(request: Request, package_sha256: str) -> Any:
         body = (

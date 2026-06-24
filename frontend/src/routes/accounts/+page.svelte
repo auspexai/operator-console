@@ -110,6 +110,8 @@
     rekor_log_index: number | null;
   };
   let certs = $state<Cert[]>([]);
+  // Re-certification staleness, keyed by the certified package_sha256.
+  let certStale = $state<Record<string, { newer_package_sha256: string; seen_at: string }>>({});
   const certsByTenant = $derived.by(() => {
     const m: Record<string, Cert[]> = {};
     for (const c of certs) if (c.status === 'certified') (m[c.tenant_id] ??= []).push(c);
@@ -121,6 +123,14 @@
       if (r.ok) certs = (await r.json()).certifications ?? [];
     } catch {
       /* certifications are best-effort enrichment */
+    }
+  }
+  async function loadCertStaleness(): Promise<void> {
+    try {
+      const r = await fetch('/api/v0/proxy/certifications/staleness');
+      if (r.ok) certStale = (await r.json()).stale ?? {};
+    } catch {
+      /* staleness is best-effort enrichment */
     }
   }
 
@@ -207,7 +217,12 @@
   // The full visible surface: the accounts list + the account→tenant linkage
   // overlay. Liveness tracks the accounts list (the linkage is best-effort).
   async function refreshAll(silent = false): Promise<boolean> {
-    const [ok] = await Promise.all([loadAccounts(silent), loadLinkages(), loadCerts()]);
+    const [ok] = await Promise.all([
+      loadAccounts(silent),
+      loadLinkages(),
+      loadCerts(),
+      loadCertStaleness(),
+    ]);
     return ok;
   }
 
@@ -430,7 +445,7 @@
     <dd>
       {#if (certsByTenant[tenantId] ?? []).length > 0}
         {#each certsByTenant[tenantId] as c (c.package_sha256)}
-          <span class="cert-line"><span class="badge cert-badge">certified</span> <span class="mono">{c.profile_name} @ {c.snapshot_version}</span>{#if c.rekor_log_index != null} · <a class="cert-verify" href={`https://auspexai.network/verify.html?cert=${c.package_sha256}`} target="_blank" rel="noopener noreferrer">verify ↗</a>{/if}</span>
+          <span class="cert-line"><span class="badge cert-badge">certified</span> <span class="mono">{c.profile_name} @ {c.snapshot_version}</span>{#if c.rekor_log_index != null} · <a class="cert-verify" href={`https://auspexai.network/verify.html?cert=${c.package_sha256}`} target="_blank" rel="noopener noreferrer">verify ↗</a>{/if}{#if certStale[c.package_sha256]} · <span class="stale-chip" title={`A newer build (pkg ${certStale[c.package_sha256].newer_package_sha256.slice(0, 12)}…) was submitted ${new Date(certStale[c.package_sha256].seen_at).toLocaleString()} and reverted to review — re-certify to auto-clear it.`}>⚠ newer build — re-certify</span>{/if}</span>
         {/each}
       {:else}
         <span class="muted">uncertified</span>
@@ -847,6 +862,7 @@
   .cert-line { display: inline-flex; align-items: center; gap: 0.35em; flex-wrap: wrap; }
   .cert-verify { color: #7aa2ff; text-decoration: none; }
   .cert-verify:hover { text-decoration: underline; }
+  .stale-chip { display: inline-block; padding: 0.02em 0.5em; border-radius: 999px; font-size: 0.78em; font-weight: 600; background: #78350f; color: #fcd34d; border: 1px solid #b45309; cursor: help; }
   .unlinked-section { margin-top: 2em; }
   .unlinked-section h2 { font-size: 1.05em; font-weight: 600; color: #fff; margin: 0 0 0.25em; }
   .unlinked-section .tenant-block { background: #0d1119; border: 1px solid #1a1e2a; border-radius: 8px; padding: 0.6em 0.85em; margin: 0.5em 0; }

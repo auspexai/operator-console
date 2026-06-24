@@ -24,6 +24,9 @@
   type ExpAgentStatus = { installed: boolean; timer_active?: boolean };
 
   let certs = $state<Cert[]>([]);
+  // Re-certification staleness (coordinator-detected): a newer build of a
+  // certified profile was submitted (same locked fields, different package).
+  let stale = $state<Record<string, { newer_package_sha256: string; seen_at: string }>>({});
   let activeCerts = $derived(certs.filter((c) => c.status === 'certified'));
   let gate = $state<GatePolicy | null>(null);
   let expAgent = $state<ExpAgentStatus | null>(null);
@@ -100,8 +103,17 @@
     }
   }
 
+  async function loadStaleness() {
+    try {
+      const r = await fetch('/api/v0/proxy/certifications/staleness');
+      if (r.ok) stale = (await r.json()).stale ?? {};
+    } catch {
+      /* staleness is best-effort */
+    }
+  }
+
   onMount(async () => {
-    await Promise.all([loadCerts(), loadGate(), loadExpAgent()]);
+    await Promise.all([loadCerts(), loadGate(), loadExpAgent(), loadStaleness()]);
     loading = false;
   });
 </script>
@@ -141,7 +153,15 @@
             {#each activeCerts as c (c.package_sha256)}
               <tr>
                 <td class="mono">{c.tenant_id}/{c.profile_name}</td>
-                <td class="mono muted">{c.snapshot_version}</td>
+                <td class="mono muted">
+                  {c.snapshot_version}
+                  {#if stale[c.package_sha256]}
+                    <span
+                      class="stale-chip"
+                      title={`A newer build (pkg ${stale[c.package_sha256].newer_package_sha256.slice(0, 12)}…) was submitted ${new Date(stale[c.package_sha256].seen_at).toLocaleString()} and reverted to review by the content-addressed gate. Re-certify it (certification issue --reissue) to let it auto-clear.`}
+                    >⚠ newer build — re-certify</span>
+                  {/if}
+                </td>
                 <td class="muted">floor {c.replication_floor}</td>
                 <td class="muted">{c.advisor ? `advisor: ${c.advisor}` : 'low-risk'}</td>
                 <td class="muted">
@@ -199,6 +219,7 @@
   .hint { color: #8b93a7; font-size: 0.85em; margin: 0.5em 0 0; line-height: 1.4; }
   .hint code { background: #0a0e1a; padding: 0.05em 0.35em; border-radius: 3px; font-size: 0.92em; }
   .warn { color: #fbbf24; font-size: 0.85em; margin-top: 0.5em; }
+  .stale-chip { display: inline-block; margin-left: 0.4em; padding: 0.05em 0.5em; border-radius: 999px; font-size: 0.78em; font-weight: 600; background: #78350f; color: #fcd34d; border: 1px solid #b45309; cursor: help; }
   .mono { font-family: ui-monospace, monospace; font-size: 0.85em; }
   .cert-table { width: 100%; border-collapse: collapse; font-size: 0.88em; }
   .cert-table td { padding: 0.3em 0.5em; border-bottom: 1px solid #1a1e2a; }
