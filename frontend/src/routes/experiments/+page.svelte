@@ -15,13 +15,6 @@
     replication_target: number | null;
     replication_floor: number | null;
     submitted_at: string;
-    started_at: string | null;
-    completed_at: string | null;
-    submissions_finalized: boolean;
-    max_unit_duration_seconds: number | null;
-    max_units: number | null;
-    max_concurrent_assignments: number | null;
-    max_payload_bytes: number | null;
     // §9 #48 assessment provenance (class-by-tier auto-approval).
     research_class: string | null;
     assessment_decision: string | null; // 'auto' | 'review'
@@ -31,8 +24,16 @@
     assessed_by: string | null;
   };
 
-  // The maintainer's work-list framing: submitted + decision=review = the human
-  // review queue; auto-approved is the overridable stream (pause/abort below).
+  // Owning-account context: a POINTER (chip → the account hub), NOT a copy. The
+  // account-detail page stays the single synthesis surface (one home per fact);
+  // the list just links up to it + shows the tier/standing at a glance.
+  type AcctRef = {
+    account_id: string;
+    trust_tier: number;
+    research_standing: number;
+    display_name: string | null;
+  };
+
   const envFails = (e: Experiment) =>
     (e.assessment_envelope ?? []).filter((c) => !c.passed).map((c) => c.name);
   const assessmentTitle = (e: Experiment) =>
@@ -46,34 +47,27 @@
       .join(' · ');
 
   let experiments = $state<Experiment[]>([]);
+  let tenantToAccount = $state<Record<string, AcctRef>>({});
   // §9 #48 review queue = submitted experiments the agent/endpoint routed to a
-  // human (decision=review). The maintainer's work-list.
+  // human (decision=review). Lifecycle ACTIONS (approve / pause / abort / resume)
+  // live on the experiment record + the Now triage home — this list is browse.
   const reviewQueue = $derived(
-    experiments.filter((e) => e.status === 'submitted' && e.assessment_decision === 'review').length
+    experiments.filter((e) => e.status === 'submitted' && e.assessment_decision === 'review').length,
   );
   let loading = $state(true);
   let error = $state<string | null>(null);
   let live = $state(false);
 
-  let approvalForm = $state<{
-    experimentId: string;
-    replication_target: string;
-    replication_floor: string;
-    max_unit_duration_seconds: string;
-    max_units: string;
-    max_concurrent_assignments: string;
-    max_payload_bytes: string;
-  } | null>(null);
-
   async function loadExperiments(silent = false): Promise<boolean> {
-    // silent = a background re-snapshot (poll or firehose nudge); don't flash the
-    // loading state, and don't replace the page with an error on a transient blip.
     if (!silent) loading = true;
     try {
       const r = await fetch('/api/v0/proxy/experiments');
       if (!r.ok) throw new Error(`HTTP ${r.status}`);
       const body = await r.json();
-      experiments = body.experiments || body || [];
+      // Standing rule: newest first.
+      experiments = ((body.experiments || body || []) as Experiment[]).sort((a, b) =>
+        (b.submitted_at ?? '').localeCompare(a.submitted_at ?? ''),
+      );
       error = null;
       return true;
     } catch (e) {
@@ -84,63 +78,36 @@
     }
   }
 
-  function showApprovalForm(exp: Experiment) {
-    // C14: default to the experiment's replication when present, else the
-    // (target 3, floor 2) baseline.
-    approvalForm = {
-      experimentId: exp.experiment_id,
-      replication_target: String(exp.replication_target ?? 3),
-      replication_floor: String(exp.replication_floor ?? 2),
-      max_unit_duration_seconds: '1800',
-      max_units: '500',
-      max_concurrent_assignments: '10',
-      max_payload_bytes: '1048576',
-    };
-  }
-
-  async function submitApproval() {
-    if (!approvalForm) return;
+  // Best-effort: resolve each experiment's tenant → its owning account (+ tier /
+  // standing) so a row links UP to the account hub. Mirrors the accounts page's
+  // tenant↔account join. On failure, rows fall back to a plain tenant label.
+  async function loadAccountLinks(): Promise<void> {
     try {
-      const body: Record<string, any> = {};
-      if (approvalForm.replication_target)
-        body.replication_target = parseInt(approvalForm.replication_target);
-      if (approvalForm.replication_floor)
-        body.replication_floor = parseInt(approvalForm.replication_floor);
-      if (approvalForm.max_unit_duration_seconds)
-        body.max_unit_duration_seconds = parseInt(approvalForm.max_unit_duration_seconds);
-      if (approvalForm.max_units)
-        body.max_units = parseInt(approvalForm.max_units);
-      if (approvalForm.max_concurrent_assignments)
-        body.max_concurrent_assignments = parseInt(approvalForm.max_concurrent_assignments);
-      if (approvalForm.max_payload_bytes)
-        body.max_payload_bytes = parseInt(approvalForm.max_payload_bytes);
-
-      const r = await fetch(`/api/v0/proxy/experiments/${approvalForm.experimentId}/actions/approve`, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify(body),
-      });
-      if (!r.ok) {
-        const detail = await r.json();
-        throw new Error(JSON.stringify(detail));
-      }
-      approvalForm = null;
-      await loadExperiments();
-    } catch (e) {
-      alert(`Approval failed: ${(e as Error).message}`);
-    }
-  }
-
-  async function experimentAction(experimentId: string, action: string) {
-    if (action === 'abort' && !confirm(`Abort experiment ${experimentId}?`)) return;
-    try {
-      const r = await fetch(`/api/v0/proxy/experiments/${experimentId}/actions/${action}`, {
-        method: 'POST',
-      });
-      if (!r.ok) throw new Error(`HTTP ${r.status}`);
-      await loadExperiments();
-    } catch (e) {
-      alert(`${action} failed: ${(e as Error).message}`);
+      const [tenantsRes, acctRes] = await Promise.all([
+        fetch('/api/v0/proxy/tenants'),
+        fetch('/api/v0/proxy/accounts'),
+      ]);
+      if (!tenantsRes.ok || !acctRes.ok) return;
+      const tenants: { tenant_id: string }[] = (await tenantsRes.json()).tenants || [];
+      const accounts: AcctRef[] = (await acctRes.json()).accounts || [];
+      const byId: Record<string, AcctRef> = {};
+      for (const a of accounts) byId[a.account_id] = a;
+      const map: Record<string, AcctRef> = {};
+      await Promise.all(
+        tenants.map(async (t) => {
+          try {
+            const lk = await fetch(`/api/v0/proxy/tenants/${encodeURIComponent(t.tenant_id)}/linkage`);
+            if (!lk.ok) return;
+            const acctId = ((await lk.json()) as { account_id?: string | null }).account_id;
+            if (acctId && byId[acctId]) map[t.tenant_id] = byId[acctId];
+          } catch {
+            /* skip this tenant — best-effort */
+          }
+        }),
+      );
+      tenantToAccount = map;
+    } catch {
+      /* best-effort enrichment — keep whatever rendered last */
     }
   }
 
@@ -155,11 +122,13 @@
 
   onMount(() => {
     loadExperiments().then((ok) => (live = ok));
-    // Poll is the truth, the SSE doorbell is a hint (M8 principle). The baseline
-    // poll catches anything missed; experiment.submitted/status nudge an instant
-    // re-snapshot so a new submission lands in the approval queue without a refresh.
+    loadAccountLinks();
+    // Poll is the truth, the SSE doorbell is a hint (M8 principle).
     return autoRefresh({
-      refresh: () => loadExperiments(true),
+      refresh: () => {
+        loadAccountLinks();
+        return loadExperiments(true);
+      },
       setLive: (v) => (live = v),
       types: ['experiment.submitted', 'experiment.status'],
     });
@@ -189,19 +158,29 @@
       <thead>
         <tr>
           <th>experiment_id</th>
-          <th>tenant</th>
+          <th>account / tenant</th>
           <th>status</th>
           <th>assessment</th>
           <th>replication</th>
           <th>submitted</th>
-          <th>actions</th>
         </tr>
       </thead>
       <tbody>
-        {#each experiments as exp}
+        {#each experiments as exp (exp.experiment_id)}
           <tr>
             <td class="mono"><a href="/experiments/{exp.experiment_id}" class="id-link">{exp.experiment_id}</a></td>
-            <td class="mono">{exp.tenant_id}</td>
+            <td>
+              {#if tenantToAccount[exp.tenant_id]}
+                {@const a = tenantToAccount[exp.tenant_id]}
+                <a href="/accounts/{a.account_id}" class="acct-chip" title="Owning account — {a.display_name ?? a.account_id} (click for the full standing)">
+                  <span class="mono tenant">{exp.tenant_id}</span>
+                  <span class="badge tier-{a.trust_tier}">T{a.trust_tier}</span>
+                  <span class="badge standing-{a.research_standing}">R{a.research_standing}</span>
+                </a>
+              {:else}
+                <span class="mono">{exp.tenant_id}</span>
+              {/if}
+            </td>
             <td><span class="badge {statusBadge[exp.status] ?? ''}">{exp.status}</span></td>
             <td title={assessmentTitle(exp)}>
               {#if exp.assessment_decision}
@@ -213,19 +192,6 @@
             </td>
             <td>target {exp.replication_target ?? '—'} / floor {exp.replication_floor ?? '—'} ({exp.integrity_policy ?? 'standard'})</td>
             <td class="mono">{new Date(exp.submitted_at).toLocaleDateString()}</td>
-            <td class="actions">
-              {#if exp.status === 'submitted'}
-                <button class="primary" onclick={() => showApprovalForm(exp)}>approve</button>
-              {/if}
-              {#if exp.status === 'approved'}
-                <button onclick={() => experimentAction(exp.experiment_id, 'pause')}>pause</button>
-                <button class="danger" onclick={() => experimentAction(exp.experiment_id, 'abort')}>abort</button>
-              {/if}
-              {#if exp.status === 'paused'}
-                <button onclick={() => experimentAction(exp.experiment_id, 'resume')}>resume</button>
-                <button class="danger" onclick={() => experimentAction(exp.experiment_id, 'abort')}>abort</button>
-              {/if}
-            </td>
           </tr>
         {/each}
       </tbody>
@@ -233,52 +199,8 @@
     <p class="muted">
       {experiments.length} experiment(s)
       {#if reviewQueue > 0}· <span class="review-count">{reviewQueue} pending human review</span>{/if}
+      · act on an experiment from its <span class="hint-inline">record</span> (click the id) or the <a href="/" class="id-link">Now</a> queue
     </p>
-  {/if}
-
-  {#if approvalForm}
-    <div class="modal-backdrop" onclick={() => (approvalForm = null)}></div>
-    <div class="approval-modal">
-      <h2>Approve experiment</h2>
-      <p class="mono">{approvalForm.experimentId}</p>
-
-      <label>
-        Replication target (aspiration)
-        <input type="number" min="1" max="15" bind:value={approvalForm.replication_target} />
-      </label>
-
-      <label>
-        Replication floor (min corroboration)
-        <input type="number" min="1" max="15" bind:value={approvalForm.replication_floor} />
-      </label>
-
-      <p class="hint">The coordinator floors both by the tenant's trust tier; target ≥ floor. The integrity label is derived from the target.</p>
-
-      <label>
-        Max unit duration (seconds)
-        <input type="number" bind:value={approvalForm.max_unit_duration_seconds} />
-      </label>
-
-      <label>
-        Max total units
-        <input type="number" bind:value={approvalForm.max_units} />
-      </label>
-
-      <label>
-        Max concurrent assignments
-        <input type="number" bind:value={approvalForm.max_concurrent_assignments} />
-      </label>
-
-      <label>
-        Max payload bytes
-        <input type="number" bind:value={approvalForm.max_payload_bytes} />
-      </label>
-
-      <div class="modal-actions">
-        <button onclick={() => (approvalForm = null)}>cancel</button>
-        <button class="primary" onclick={submitApproval}>approve with these settings</button>
-      </div>
-    </div>
   {/if}
 </main>
 
@@ -299,27 +221,26 @@
   .completed-badge { background: #14532d; color: #86efac; }
   .aborted-badge { background: #7f1d1d; color: #fca5a5; }
   .archived-badge { background: #374151; color: #6b7280; }
+  /* owning-account chip (pointer to the account hub) */
+  .acct-chip { display: inline-flex; align-items: center; gap: 0.35em; text-decoration: none; color: inherit; }
+  .acct-chip .tenant { color: #c4b5fd; }
+  .acct-chip:hover .tenant { text-decoration: underline; }
+  .badge.tier-0 { background: #1f2937; }
+  .badge.tier-1 { background: #1e3a5f; color: #93c5fd; }
+  .badge.tier-2 { background: #14532d; color: #86efac; }
+  .badge.tier-3 { background: #4c1d95; color: #c4b5fd; }
+  .badge.standing-0 { background: #1f2937; }
+  .badge.standing-1 { background: #1e3a5f; color: #93c5fd; }
+  .badge.standing-2 { background: #14532d; color: #86efac; }
+  .badge.standing-3 { background: #4c1d95; color: #c4b5fd; }
   /* §9 #48 assessment chips */
   .assess-auto { background: #14532d; color: #86efac; }
   .assess-review { background: #854d0e; color: #fde68a; }
   .rclass { font-family: ui-monospace, monospace; font-size: 0.78em; color: #9ca3af; margin-left: 0.35em; }
   .review-count { color: #fde68a; }
   .muted { color: #6b7280; font-size: 0.95em; }
+  .hint-inline { color: #a78bfa; }
   .errortext { color: #fca5a5; }
-  button { background: #1f2937; border: 1px solid #2a2e3a; color: #d4d4dc; padding: 0.25em 0.65em; border-radius: 4px; cursor: pointer; font: inherit; font-size: 0.85em; }
-  button:hover { background: #2a2e3a; }
-  button.primary { background: #a78bfa; color: #0a0e1a; border-color: #a78bfa; font-weight: 600; }
-  button.primary:hover { background: #c4b5fd; }
-  button.danger { background: #7f1d1d; border-color: #7f1d1d; color: #fca5a5; }
-  button.danger:hover { background: #991b1b; }
   .id-link { color: #a78bfa; text-decoration: none; }
   .id-link:hover { text-decoration: underline; }
-  .actions { white-space: nowrap; }
-  .modal-backdrop { position: fixed; inset: 0; background: rgba(0, 0, 0, 0.6); z-index: 10; }
-  .approval-modal { position: fixed; top: 50%; left: 50%; transform: translate(-50%, -50%); background: #1a1e2a; border: 1px solid #2a2e3a; border-radius: 8px; padding: 1.5em; z-index: 11; width: 90%; max-width: 500px; }
-  .approval-modal h2 { margin: 0 0 0.5em; color: #fff; font-size: 1.1em; }
-  .approval-modal label { display: block; margin: 0.75em 0 0.25em; color: #9ca3af; font-size: 0.9em; }
-  .approval-modal input { width: 100%; padding: 0.4em; background: #0a0e1a; border: 1px solid #2a2e3a; border-radius: 4px; color: #d4d4dc; font: inherit; }
-  .approval-modal .hint { color: #6b7280; font-size: 0.8em; margin: 0.5em 0 0; line-height: 1.4; }
-  .modal-actions { display: flex; gap: 0.75em; justify-content: flex-end; margin-top: 1.25em; }
 </style>

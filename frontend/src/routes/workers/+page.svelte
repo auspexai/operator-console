@@ -58,7 +58,10 @@
       ]);
       if (!r.ok) throw new Error(`HTTP ${r.status}`);
       const body = await r.json();
-      workers = body.workers || body || [];
+      // Standing rule: newest first — most recently active worker at the top.
+      workers = ((body.workers || body || []) as { last_heartbeat_at: string | null }[]).sort(
+        (a, b) => (b.last_heartbeat_at ?? '').localeCompare(a.last_heartbeat_at ?? ''),
+      ) as typeof workers;
       if (schedR.ok) {
         const st = await schedR.json();
         const map: Record<string, SchedWorker> = {};

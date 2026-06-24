@@ -96,7 +96,10 @@
       const r = await fetch(url);
       if (!r.ok) throw new Error(`HTTP ${r.status}`);
       const body: AuditResponse = await r.json();
-      entries = body.entries || [];
+      // Standing rule: newest first (most recent audit event at the top).
+      entries = (body.entries || []).sort((a, b) =>
+        (b.occurred_at ?? '').localeCompare(a.occurred_at ?? ''),
+      );
       total = body.total ?? entries.length;
     } catch (e) {
       error = (e as Error).message;

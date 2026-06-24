@@ -206,7 +206,10 @@
       const r = await fetch('/api/v0/proxy/accounts');
       if (!r.ok) throw new Error(`HTTP ${r.status}`);
       const body = await r.json();
-      accounts = body.accounts || body || [];
+      // Standing rule: newest first (newest account at the top).
+      accounts = ((body.accounts || body || []) as Account[]).sort((a, b) =>
+        (b.created_at ?? '').localeCompare(a.created_at ?? ''),
+      );
       error = null;
       return true;
     } catch (e) {

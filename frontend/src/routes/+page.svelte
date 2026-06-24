@@ -251,7 +251,17 @@
   );
   let versionMismatch = $derived(fleetVersions.length > 1);
 
-  let runningExps = $derived(experiments.filter((e) => e.status === 'approved'));
+  // "Running" = genuinely executing work right now, NOT merely status=approved.
+  // There's no distinct running state (D12), and an approved experiment that has
+  // drained its units (or never started) lingers in 'approved' — so cross-check
+  // the scheduler's in-flight count: in_progress > 0 means a worker is on it now.
+  let runningExps = $derived(
+    experiments.filter((e) => {
+      if (e.status !== 'approved') return false;
+      const s = schedExps.find((x) => x.experiment_id === e.experiment_id);
+      return !!s && s.in_progress > 0;
+    }),
+  );
   let unitsInFlight = $derived(schedExps.reduce((n, e) => n + (e.in_progress ?? 0), 0));
   let unitsPending = $derived(schedExps.reduce((n, e) => n + (e.pending ?? 0), 0));
 
