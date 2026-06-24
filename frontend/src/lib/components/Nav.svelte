@@ -31,7 +31,13 @@
         // (verify.html — certs catalog + Rekor + authorized-signer roster),
         // so the console links out rather than duplicating it.
         { href: 'https://auspexai.network/verify.html', label: 'Verify', external: true },
-        { href: '/audit', label: 'Audit' },
+      ],
+    },
+    {
+      label: 'Governance',
+      links: [
+        { href: '/governance/config', label: 'Config' },
+        { href: '/governance/audit', label: 'Audit' },
       ],
     },
     {
