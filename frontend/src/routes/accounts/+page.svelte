@@ -95,6 +95,34 @@
   let tenantDirectory = $state<TenantEntry[]>([]);
   let pendingAppsByAccount = $state<Record<string, number>>({});
 
+  // Certified profiles (RFC 0001 / §6.7), keyed to a tenant's signed release
+  // SNAPSHOT. Surfaced under each tenant so its certification + version is
+  // legible where the tenant lives — matching Governance · Config. NB: the
+  // coordinator only learns a tenant's version via its cert; it does NOT track
+  // GitHub release tags, so "uncertified" means "none certified", not "no releases".
+  type Cert = {
+    package_sha256: string;
+    snapshot_version: string;
+    tenant_id: string;
+    profile_name: string;
+    status: string;
+    rekor_log_index: number | null;
+  };
+  let certs = $state<Cert[]>([]);
+  const certsByTenant = $derived.by(() => {
+    const m: Record<string, Cert[]> = {};
+    for (const c of certs) if (c.status === 'certified') (m[c.tenant_id] ??= []).push(c);
+    return m;
+  });
+  async function loadCerts(): Promise<void> {
+    try {
+      const r = await fetch('/api/v0/proxy/certifications');
+      if (r.ok) certs = (await r.json()).certifications ?? [];
+    } catch {
+      /* certifications are best-effort enrichment */
+    }
+  }
+
   const knownAccountIds = $derived(new Set(accounts.map((a) => a.account_id)));
 
   // --- Promotion-review queue: who's awaiting a decision, by promotion type ---
@@ -178,7 +206,7 @@
   // The full visible surface: the accounts list + the account→tenant linkage
   // overlay. Liveness tracks the accounts list (the linkage is best-effort).
   async function refreshAll(silent = false): Promise<boolean> {
-    const [ok] = await Promise.all([loadAccounts(silent), loadLinkages()]);
+    const [ok] = await Promise.all([loadAccounts(silent), loadLinkages(), loadCerts()]);
     return ok;
   }
 
@@ -394,6 +422,21 @@
   </header>
   <Nav />
 
+  <!-- One render of a tenant's certification + snapshot_version, used under both
+       the nested and the unlinked tenant blocks (one home per fact). -->
+  {#snippet certRow(tenantId: string)}
+    <dt>certification</dt>
+    <dd>
+      {#if (certsByTenant[tenantId] ?? []).length > 0}
+        {#each certsByTenant[tenantId] as c (c.package_sha256)}
+          <span class="cert-line"><span class="badge cert-badge">certified</span> <span class="mono">{c.profile_name} @ {c.snapshot_version}</span>{#if c.rekor_log_index != null} · <a class="cert-verify" href={`https://auspexai.network/verify.html?cert=${c.package_sha256}`} target="_blank" rel="noopener noreferrer">verify ↗</a>{/if}</span>
+        {/each}
+      {:else}
+        <span class="muted">uncertified</span>
+      {/if}
+    </dd>
+  {/snippet}
+
   {#if loading}
     <p class="muted">Loading accounts...</p>
   {:else if error}
@@ -542,6 +585,7 @@
                       <dt>contact</dt><dd>{t.contact_email ?? t.contact_public ?? '—'}</dd>
                       <dt>registered</dt><dd class="mono">{t.registered_at ? new Date(t.registered_at).toLocaleString() : '—'}</dd>
                       <dt>tenant signing key</dt><dd class="mono" title={t.maintainer_pubkey ?? undefined}>{shortHex(t.maintainer_pubkey)}</dd>
+                      {@render certRow(t.tenant_id)}
                       {#if t.description}<dt>description</dt><dd>{t.description}</dd>{/if}
                     </dl>
                   </div>
@@ -584,6 +628,7 @@
             <dt>contact</dt><dd>{t.contact_email ?? t.contact_public ?? '—'}</dd>
             <dt>registered</dt><dd class="mono">{t.registered_at ? new Date(t.registered_at).toLocaleString() : '—'}</dd>
             <dt>tenant signing key</dt><dd class="mono" title={t.maintainer_pubkey ?? undefined}>{shortHex(t.maintainer_pubkey)}</dd>
+            {@render certRow(t.tenant_id)}
             {#if t.description}<dt>description</dt><dd>{t.description}</dd>{/if}
           </dl>
           {#if accounts.length > 0}
@@ -795,6 +840,10 @@
   .tenant-facts { display: grid; grid-template-columns: 10em 1fr; gap: 0.2em 1em; margin: 0.4em 0 0; font-size: 0.9em; }
   .tenant-facts dt { color: #6b7280; font-size: 0.85em; text-transform: uppercase; letter-spacing: 0.06em; }
   .tenant-facts dd { margin: 0; }
+  .cert-badge { background: #14532d; color: #86efac; }
+  .cert-line { display: inline-flex; align-items: center; gap: 0.35em; flex-wrap: wrap; }
+  .cert-verify { color: #7aa2ff; text-decoration: none; }
+  .cert-verify:hover { text-decoration: underline; }
   .unlinked-section { margin-top: 2em; }
   .unlinked-section h2 { font-size: 1.05em; font-weight: 600; color: #fff; margin: 0 0 0.25em; }
   .unlinked-section .tenant-block { background: #0d1119; border: 1px solid #1a1e2a; border-radius: 8px; padding: 0.6em 0.85em; margin: 0.5em 0; }
