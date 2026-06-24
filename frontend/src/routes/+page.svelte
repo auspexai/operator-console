@@ -972,7 +972,6 @@
           <strong>{runningExps.length}</strong> active experiment{runningExps.length === 1 ? '' : 's'}
           · <strong>{unitsInFlight}</strong> unit{unitsInFlight === 1 ? '' : 's'} in flight
           · <strong>{unitsPending}</strong> pending
-          · <a href="/experiments" class="netlink">all experiments →</a>
         </p>
       </section>
     {/if}
@@ -1238,13 +1237,6 @@
   .fleetline {
     font-size: 1em;
     margin: 0.25em 0 0.5em;
-  }
-  .netlink {
-    color: #a78bfa;
-    text-decoration: none;
-  }
-  .netlink:hover {
-    text-decoration: underline;
   }
   .modal-backdrop {
     position: fixed;

@@ -112,6 +112,26 @@
   let certs = $state<Cert[]>([]);
   // Re-certification staleness, keyed by the certified package_sha256.
   let certStale = $state<Record<string, { newer_package_sha256: string; seen_at: string }>>({});
+
+  // Experiments nested under their tenant (the account-as-hub view; the standalone
+  // /experiments list was removed). Each shows the AT-SUBMISSION trust tier
+  // (assessment_tier — useful when vetting toward T3/R3), status, and date —
+  // collapsed by default so it never becomes a long vertical list.
+  type Experiment = {
+    experiment_id: string;
+    tenant_id: string;
+    status: string;
+    submitted_at: string;
+    assessment_tier: number | null;
+  };
+  let experiments = $state<Experiment[]>([]);
+  const experimentsByTenant = $derived.by(() => {
+    const m: Record<string, Experiment[]> = {};
+    for (const e of experiments) (m[e.tenant_id] ??= []).push(e);
+    for (const k in m)
+      m[k].sort((a, b) => (b.submitted_at ?? '').localeCompare(a.submitted_at ?? ''));
+    return m;
+  });
   const certsByTenant = $derived.by(() => {
     const m: Record<string, Cert[]> = {};
     for (const c of certs) if (c.status === 'certified') (m[c.tenant_id] ??= []).push(c);
@@ -131,6 +151,14 @@
       if (r.ok) certStale = (await r.json()).stale ?? {};
     } catch {
       /* staleness is best-effort enrichment */
+    }
+  }
+  async function loadExperiments(): Promise<void> {
+    try {
+      const r = await fetch('/api/v0/proxy/experiments');
+      if (r.ok) experiments = (await r.json()).experiments ?? [];
+    } catch {
+      /* experiments are best-effort enrichment */
     }
   }
 
@@ -222,6 +250,7 @@
       loadLinkages(),
       loadCerts(),
       loadCertStaleness(),
+      loadExperiments(),
     ]);
     return ok;
   }
@@ -453,6 +482,28 @@
     </dd>
   {/snippet}
 
+  <!-- A tenant's experiments, collapsed by default → horizontal status chips when
+       expanded (so a busy tenant never makes a long vertical list). -->
+  {#snippet expRow(tenantId: string)}
+    {@const exps = experimentsByTenant[tenantId] ?? []}
+    {#if exps.length > 0}
+      {@const pending = exps.filter((e) => e.status === 'submitted').length}
+      <details class="exp-disclosure">
+        <summary><span class="exp-count">{exps.length} experiment{exps.length === 1 ? '' : 's'}</span>{#if pending > 0} <span class="exp-pending-flag">{pending} pending</span>{/if}</summary>
+        <div class="exp-chips">
+          {#each exps as e (e.experiment_id)}
+            <a class="exp-chip exp-{e.status}" href="/experiments/{e.experiment_id}" title={`${e.experiment_id} · ${e.status} · submitted ${new Date(e.submitted_at).toLocaleString()}${e.assessment_tier != null ? ` · assessed under T${e.assessment_tier}` : ''}`}>
+              {#if e.assessment_tier != null}<span class="exp-tier">T{e.assessment_tier}</span>{/if}
+              <span class="exp-id mono">{e.experiment_id}</span>
+              <span class="exp-status">{e.status}</span>
+              <span class="exp-date">{new Date(e.submitted_at).toLocaleDateString()}</span>
+            </a>
+          {/each}
+        </div>
+      </details>
+    {/if}
+  {/snippet}
+
   {#if loading}
     <p class="muted">Loading accounts...</p>
   {:else if error}
@@ -606,6 +657,7 @@
                       {@render certRow(t.tenant_id)}
                       {#if t.description}<dt>description</dt><dd>{t.description}</dd>{/if}
                     </dl>
+                    {@render expRow(t.tenant_id)}
                   </div>
                 {/each}
               </td>
@@ -649,6 +701,7 @@
             {@render certRow(t.tenant_id)}
             {#if t.description}<dt>description</dt><dd>{t.description}</dd>{/if}
           </dl>
+          {@render expRow(t.tenant_id)}
           {#if accounts.length > 0}
             <button class="link-btn" onclick={() => showLinkModal(t.tenant_id)} disabled={actionLoading}>link to account…</button>
           {/if}
@@ -863,6 +916,31 @@
   .cert-verify { color: #7aa2ff; text-decoration: none; }
   .cert-verify:hover { text-decoration: underline; }
   .stale-chip { display: inline-block; padding: 0.02em 0.5em; border-radius: 999px; font-size: 0.78em; font-weight: 600; background: #78350f; color: #fcd34d; border: 1px solid #b45309; cursor: help; }
+  /* experiments nested under a tenant — collapsed disclosure → horizontal chips */
+  .exp-disclosure { margin-top: 0.5em; font-size: 0.85em; }
+  .exp-disclosure summary { cursor: pointer; color: #9ca3af; }
+  .exp-disclosure summary:hover { color: #d4d4dc; }
+  .exp-count { color: #c4b5fd; }
+  .exp-pending-flag { background: #854d0e; color: #fde68a; padding: 0.02em 0.5em; border-radius: 999px; font-size: 0.85em; font-weight: 600; }
+  .exp-chips { display: flex; flex-wrap: wrap; gap: 0.35em; margin-top: 0.5em; }
+  .exp-chip { display: inline-flex; align-items: center; gap: 0.4em; padding: 0.12em 0.55em; border-radius: 5px; text-decoration: none; background: #11151f; border: 1px solid #1f2937; border-left-width: 3px; }
+  .exp-chip:hover { background: #161b27; }
+  .exp-chip .exp-id { color: #a78bfa; }
+  .exp-chip .exp-date { color: #6b7280; font-size: 0.85em; }
+  .exp-tier { background: #2a2e3a; color: #9ca3af; padding: 0 0.35em; border-radius: 3px; font-size: 0.82em; font-weight: 600; }
+  .exp-status { font-size: 0.82em; font-weight: 600; }
+  .exp-submitted { border-left-color: #f59e0b; }
+  .exp-submitted .exp-status { color: #fbbf24; }
+  .exp-approved { border-left-color: #22c55e; }
+  .exp-approved .exp-status { color: #86efac; }
+  .exp-completed { border-left-color: #22c55e; }
+  .exp-completed .exp-status { color: #86efac; }
+  .exp-paused { border-left-color: #3b82f6; }
+  .exp-paused .exp-status { color: #93c5fd; }
+  .exp-aborted { border-left-color: #ef4444; }
+  .exp-aborted .exp-status { color: #fca5a5; }
+  .exp-archived { border-left-color: #6b7280; }
+  .exp-archived .exp-status { color: #9ca3af; }
   .unlinked-section { margin-top: 2em; }
   .unlinked-section h2 { font-size: 1.05em; font-weight: 600; color: #fff; margin: 0 0 0.25em; }
   .unlinked-section .tenant-block { background: #0d1119; border: 1px solid #1a1e2a; border-radius: 8px; padding: 0.6em 0.85em; margin: 0.5em 0; }
