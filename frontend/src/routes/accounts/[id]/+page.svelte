@@ -18,6 +18,7 @@
     suspension_reason: string | null;
     identity_verified_at: string | null;
     identity_verification_method: string | null;
+    orcid_id: string | null;
   };
 
   type ReceiptStats = {
@@ -374,6 +375,18 @@
             <span class="muted">not verified</span>
           {/if}
         </dd>
+        {#if account.orcid_id}
+          <dt>orcid</dt>
+          <dd>
+            <a
+              class="orcid"
+              href={`https://orcid.org/${account.orcid_id}`}
+              target="_blank"
+              rel="noopener noreferrer"
+              title="Open the researcher's live ORCID record — affiliations + publications — to vet before promoting (T2+ / R3).">{account.orcid_id} ↗</a
+            >
+          </dd>
+        {/if}
       </dl>
     </section>
 
@@ -563,6 +576,24 @@
     </section>
   {/if}
 
+  {#snippet orcidVet(label: string)}
+    <div class="vet" class:vet-ok={!!account?.orcid_id} class:vet-warn={!account?.orcid_id}>
+      {#if account?.orcid_id}
+        <strong>Vet identity before granting {label}.</strong> Read their live record —
+        <a
+          class="orcid"
+          href={`https://orcid.org/${account.orcid_id}`}
+          target="_blank"
+          rel="noopener noreferrer">orcid.org/{account.orcid_id} ↗</a
+        > (affiliations + publications). A linked ORCID satisfies the identity gate; the judgment
+        is still yours.
+      {:else}
+        <strong>⚠ No verified identity on file.</strong> Confirm a real ORCID / institutional
+        affiliation out-of-band before granting {label} — the gate warns either way.
+      {/if}
+    </div>
+  {/snippet}
+
   {#if tierModal}
     <div class="modal-backdrop" onclick={() => (tierModal = null)}></div>
     <div class="tier-modal">
@@ -584,6 +615,10 @@
         </select>
       </label>
 
+      {#if tierModal.action === 'promote' && tierModal.targetTier >= 2}
+        {@render orcidVet(`T${tierModal.targetTier}`)}
+      {/if}
+
       <label>
         Reason (required)
         <textarea bind:value={tierModal.reason} rows="3" placeholder="Why is this tier change justified? (e.g., identity verified via institutional email, vouched by T2+ volunteer, hardware fault investigation)"></textarea>
@@ -604,6 +639,10 @@
       <h2>Promote research standing</h2>
       <p class="mono">{accountId}</p>
       <p class="muted">Promotion is one step at a time ({standingLabel((standingModal.target ?? 1) - 1)} → {standingLabel(standingModal.target)}).</p>
+
+      {#if standingModal.target === 3}
+        {@render orcidVet('R3')}
+      {/if}
 
       <label>
         Reason (required)
@@ -678,6 +717,11 @@
   dt { color: #9ca3af; }
   dd { margin: 0; }
   .mono { font-family: ui-monospace, monospace; font-size: 0.85em; word-break: break-all; }
+  a.orcid { font-family: ui-monospace, monospace; font-size: 0.9em; color: #a6ce39; text-decoration: none; }
+  a.orcid:hover { text-decoration: underline; }
+  .vet { border-radius: 6px; padding: 0.6rem 0.8rem; margin: 0.2rem 0 0.6rem; font-size: 0.85rem; line-height: 1.5; }
+  .vet-ok { border: 1px solid #1d7f90; background: rgba(21, 94, 107, 0.18); color: #cdd5e6; }
+  .vet-warn { border: 1px solid #7c5b13; background: rgba(124, 91, 19, 0.18); color: #f0d9a8; }
   .badge { display: inline-block; padding: 0.1em 0.55em; border-radius: 3px; font-size: 0.85em; font-weight: 500; background: #2a2e3a; color: #9ca3af; }
   .badge.ok { background: #14532d; color: #86efac; }
   .suspended-badge { background: #7f1d1d; color: #fca5a5; }
