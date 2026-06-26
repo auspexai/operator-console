@@ -235,10 +235,6 @@
         Date.now() - new Date(w.last_heartbeat_at).getTime() <= STALE_MS,
     ).length,
   );
-  let fleetVersions = $derived(
-    [...new Set(activeFleet.map((w) => w.capabilities?.worker_version).filter(Boolean))] as string[],
-  );
-
   // Ops heart (surface_liveness_and_activity_view_design.md): fleet throughput
   // pulse = units completed network-wide (summed across scheduler experiments),
   // plus the vitals the maintainer triages on.
@@ -249,7 +245,6 @@
       pendingSoftware.length +
       pendingApplications.length,
   );
-  let versionMismatch = $derived(fleetVersions.length > 1);
 
   // "Running" = genuinely executing work right now, NOT merely status=approved.
   // There's no distinct running state (D12), and an approved experiment that has
@@ -262,8 +257,6 @@
       return !!s && s.in_progress > 0;
     }),
   );
-  let unitsInFlight = $derived(schedExps.reduce((n, e) => n + (e.in_progress ?? 0), 0));
-  let unitsPending = $derived(schedExps.reduce((n, e) => n + (e.pending ?? 0), 0));
 
   let needsCount = $derived(
     pendingApprovals.length +
@@ -942,38 +935,11 @@
         </section>
       {/if}
 
-      <section>
-        <h2 class="section">Fleet</h2>
-        <!-- Infra health + infra EXCEPTIONS only. Per-worker detail (incl.
-             versions) lives on /workers (one-home rule) and is reachable from
-             the nav, so no per-worker table and no redundant link here. The
-             consistent worker version is browse data, not triage — only the
-             cross-worker MISMATCH earns a home slot (an actual "needs
-             attention" signal). -->
-        <p class="fleetline">
-          <strong>{onlineCount}</strong>/{activeFleet.length} worker{activeFleet.length === 1 ? '' : 's'} online
-          {#if health}
-            · coordinator
-            {#if health.coord.reachable === true}
-              <span class="badge ok">reachable</span>
-            {:else if health.coord.reachable === false}
-              <span class="badge errorbadge">unreachable</span>
-            {/if}
-          {/if}
-          {#if versionMismatch}
-            · <span class="badge warnbadge">mixed worker versions: {fleetVersions.join(', ')}</span>
-          {/if}
-        </p>
-      </section>
-
-      <section>
-        <h2 class="section">Running</h2>
-        <p class="muted">
-          <strong>{runningExps.length}</strong> active experiment{runningExps.length === 1 ? '' : 's'}
-          · <strong>{unitsInFlight}</strong> unit{unitsInFlight === 1 ? '' : 's'} in flight
-          · <strong>{unitsPending}</strong> pending
-        </p>
-      </section>
+      <!-- Fleet + Running sections removed: the heart above is the summary (it
+           already shows workers · coordinator · holds · experiments running ·
+           awaiting review). Worker versions self-resolve via the update prompt
+           and live on /workers; unit-in-flight/pending detail lives on /scheduler.
+           What's left here is the triage that actually needs a human. -->
     {/if}
 
     <footer>
@@ -1084,7 +1050,7 @@
     font-size: 1.25em;
   }
   .needs-none {
-    color: #86efac;
+    color: #9ca3af;
     font-weight: 500;
   }
   .needs-some {
@@ -1233,10 +1199,6 @@
     display: flex;
     gap: 0.6em;
     margin-top: 0.75em;
-  }
-  .fleetline {
-    font-size: 1em;
-    margin: 0.25em 0 0.5em;
   }
   .modal-backdrop {
     position: fixed;

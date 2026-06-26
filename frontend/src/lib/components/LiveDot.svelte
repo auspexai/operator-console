@@ -17,6 +17,8 @@
 
 <style>
   .dot { font-size: 0.55em; font-weight: 500; vertical-align: middle; margin-left: 0.5em; }
-  .dot.live { color: #86efac; }
+  /* live = neutral gray (calm by default — it's page-poll health, not a network
+     signal); only stale earns a color (amber). */
+  .dot.live { color: #6b7280; }
   .dot.stale { color: #fbbf24; }
 </style>
