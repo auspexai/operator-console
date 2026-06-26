@@ -641,7 +641,7 @@
       {#if !auth}
         <span class="badge">checking auth…</span>
       {:else if auth.signed_in}
-        <span class="badge ok">signed in as @{auth.github_login}</span>
+        <span class="signed-in">signed in as <a class="gh" href="https://github.com/{auth.github_login}" target="_blank" rel="noopener noreferrer">{auth.github_login} ↗</a></span>
         <button onclick={signOut}>sign out</button>
       {:else}
         <span class="badge">not signed in</span>
@@ -1090,10 +1090,6 @@
     background: #2a2e3a;
     color: #9ca3af;
   }
-  .badge.ok {
-    background: #14532d;
-    color: #86efac;
-  }
   .badge.errorbadge {
     background: #7f1d1d;
     color: #fca5a5;
@@ -1106,6 +1102,19 @@
     display: flex;
     gap: 0.6em;
     align-items: center;
+  }
+  /* GitHub identity as a link (matches the R-D standard: handle + ↗ → github.com). */
+  .signed-in {
+    color: #9ca3af;
+    font-size: 0.9em;
+  }
+  .gh {
+    font-family: ui-monospace, monospace;
+    color: #adbac7;
+    text-decoration: none;
+  }
+  .gh:hover {
+    text-decoration: underline;
   }
   button {
     background: #1f2937;
