@@ -543,8 +543,20 @@
             <td class="mono"><a href="/accounts/{acct.account_id}" class="id-link">{acct.account_id}</a></td>
             <td class="identity-cell">
               <div class="identity-line">
-                <span class="badge idp-badge">{acct.idp}</span>
-                {acct.display_name || acct.idp_sub}
+                {#if acct.idp === 'github' && acct.display_name}
+                  <a
+                    class="gh-chip"
+                    href={`https://github.com/${acct.display_name}`}
+                    target="_blank"
+                    rel="noopener noreferrer"
+                    title="GitHub account — open the live profile."
+                  >
+                    <span class="badge idp-badge">github</span>{acct.display_name} ↗
+                  </a>
+                {:else}
+                  <span class="badge idp-badge">{acct.idp}</span>
+                  {acct.display_name || acct.idp_sub}
+                {/if}
               </div>
               {#if acct.orcid_id}
                 <a
@@ -619,12 +631,12 @@
               <td class="nest-indent" aria-hidden="true"></td>
               <td colspan="4">
                 {#each tenantsByAccount[acct.account_id] as t (t.tenant_id)}
-                  <div class="tenant-block">
-                    <div class="tenant-head">
+                  <details class="tenant-block">
+                    <summary class="tenant-head">
                       <span class="badge tenant-badge">tenant</span>
                       <span class="mono tenant-id">{t.tenant_id}</span>
                       {#if t.display_name}<span class="tenant-name">{t.display_name}</span>{/if}
-                    </div>
+                    </summary>
                     <dl class="tenant-facts">
                       <dt>contact</dt><dd>{t.contact_email ?? t.contact_public ?? '—'}</dd>
                       <dt>registered</dt><dd class="mono">{t.registered_at ? new Date(t.registered_at).toLocaleString() : '—'}</dd>
@@ -633,7 +645,7 @@
                       {#if t.description}<dt>description</dt><dd>{t.description}</dd>{/if}
                     </dl>
                     {@render expRow(t.tenant_id)}
-                  </div>
+                  </details>
                 {/each}
               </td>
             </tr>
@@ -840,6 +852,9 @@
   .identity-line { display: flex; align-items: center; flex-wrap: wrap; }
   .orcid-chip { display: inline-flex; align-items: center; gap: 0.25em; margin-top: 0.25em; font-family: ui-monospace, monospace; font-size: 0.8em; color: #a6ce39; text-decoration: none; }
   .orcid-chip:hover { text-decoration: underline; }
+  /* GitHub binding links like the ORCID one (open the live profile). */
+  .gh-chip { display: inline-flex; align-items: center; font-family: ui-monospace, monospace; font-size: 0.85em; color: #adbac7; text-decoration: none; }
+  .gh-chip:hover { text-decoration: underline; }
   .orcid-badge { background: #1f2a14; color: #a6ce39; margin-right: 0.15em; }
   /* two-axis inline promote/demote controls, beside the badge they change */
   .axis { display: flex; align-items: center; gap: 0.3em; }
@@ -868,6 +883,12 @@
   .tenant-block { padding: 0.5em 0.25em 0.6em; }
   .tenant-block + .tenant-block { border-top: 1px solid #1a1e2a; }
   .tenant-head { display: flex; align-items: center; gap: 0.5em; flex-wrap: wrap; }
+  /* tenants are collapsible under their account (click the head to expand). */
+  summary.tenant-head { cursor: pointer; list-style: none; }
+  summary.tenant-head::-webkit-details-marker { display: none; }
+  summary.tenant-head::before { content: '▸'; display: inline-block; color: #6b7280; font-size: 0.85em; transition: transform 0.12s; }
+  summary.tenant-head:hover::before { color: #d4d4dc; }
+  details.tenant-block[open] > summary.tenant-head::before { transform: rotate(90deg); }
   .tenant-id { color: #c4b5fd; }
   .tenant-name { color: #d4d4dc; }
   .tenant-badge { background: #312e81; color: #c4b5fd; }
