@@ -171,19 +171,15 @@
   const pendingAppsCount = $derived(
     Object.values(pendingAppsByAccount).reduce((n, c) => n + c, 0),
   );
-  const isActive = (a: Account) => !a.suspended_at && !a.retired_at;
-  // Judgment tiers (T2→T3, R2→R3): NO mechanical criterion by design (§3.3).
-  // Surface the candidate POOL (current T2 / R2 accounts) + soft signals, framed
-  // "review these" — never an auto "ready" flag.
-  const t3CandidateCount = $derived(accounts.filter((a) => isActive(a) && a.trust_tier === 2).length);
-  const r3CandidateCount = $derived(accounts.filter((a) => isActive(a) && a.research_standing === 2).length);
-  // In the review queue if any promotion decision is plausibly pending: a
-  // mechanical-ready tier, a judgment-tier candidate, or a pending tenant app.
+  // Judgment tiers (T2→T3, R2→R3) have NO mechanical criterion by design (§3.3):
+  // promotion is a human, out-of-band call (verify identity/ORCID + a clean
+  // record). They're NOT surfaced as a standing "candidate" queue item — that read
+  // as a pending approval and flagged the maintainer's own T2 account. A maintainer
+  // who wants to promote browses the accounts list by tier when they choose to.
+  // The review queue = only genuinely-actionable items: a mechanically-EARNED
+  // promotion (T1→T2 / R1→R2) or a pending tenant application.
   const needsReview = (a: Account) =>
-    !!a.t2_readiness?.ready ||
-    !!a.r2_readiness?.ready ||
-    !!pendingAppsByAccount[a.account_id] ||
-    (isActive(a) && (a.trust_tier === 2 || a.research_standing === 2));
+    !!a.t2_readiness?.ready || !!a.r2_readiness?.ready || !!pendingAppsByAccount[a.account_id];
   const reviewCount = $derived(accounts.filter(needsReview).length);
   const visibleAccounts = $derived(
     filterMode === 'review' ? accounts.filter(needsReview) : accounts,
@@ -527,13 +523,6 @@
           {#if r2ReadyCount > 0}<span class="chip ready">{r2ReadyCount} ready for R2 review</span>{/if}
           {#if pendingAppsCount > 0}<a class="chip pending" href="#applications">{pendingAppsCount} pending app{pendingAppsCount === 1 ? '' : 's'}</a>{/if}
         </div>
-        {#if t3CandidateCount > 0 || r3CandidateCount > 0}
-          <p class="review-candidates">
-            Candidates to consider:
-            {#if t3CandidateCount > 0}<strong>{t3CandidateCount}</strong> for T3{/if}{#if t3CandidateCount > 0 && r3CandidateCount > 0}<span> · </span>{/if}{#if r3CandidateCount > 0}<strong>{r3CandidateCount}</strong> for R3{/if}
-            <span class="muted">— judgment tiers; verify identity / ORCID + a clean record out-of-band, no mechanical "ready"</span>
-          </p>
-        {/if}
       </section>
     {/if}
     <TenantApplications onresolved={() => refreshAll(true)} />
@@ -887,7 +876,6 @@
   .chip { display: inline-block; padding: 0.1em 0.6em; border-radius: 999px; font-size: 0.82em; font-weight: 600; text-decoration: none; }
   .chip.ready { background: #14532d; color: #86efac; border: 1px solid #22c55e; }
   .chip.pending { background: #78350f; color: #fcd34d; border: 1px solid #b45309; }
-  .review-candidates { margin: 0.6em 0 0; font-size: 0.85em; color: #c4b5fd; }
   .muted { color: #6b7280; font-size: 0.95em; }
   .errortext { color: #fca5a5; }
   .id-link { color: #a78bfa; text-decoration: none; }
