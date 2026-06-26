@@ -560,36 +560,22 @@
             </td>
             <td>
               <div class="axis">
-                <span class="badge tier-{acct.trust_tier}">{tierNames[acct.trust_tier] ?? `T${acct.trust_tier}`}</span>
+                <span class="tier">{tierNames[acct.trust_tier] ?? `T${acct.trust_tier}`}</span>
                 {#if !acct.retired_at}
                   {#if acct.trust_tier < 3}
-                    <button class="icon-btn" title="Promote trust tier" aria-label="Promote trust tier" onclick={() => showTierModal(acct.account_id, 'promote', acct.trust_tier)} disabled={actionLoading}>▲</button>
+                    <button class="icon-btn promote" class:earned={acct.t2_readiness?.ready} title={acct.t2_readiness?.ready ? 'Promote — T1→T2 earned (receipts + distinct + identity met)' : 'Promote trust tier'} aria-label="Promote trust tier" onclick={() => showTierModal(acct.account_id, 'promote', acct.trust_tier)} disabled={actionLoading}>▲</button>
                   {/if}
                   {#if acct.trust_tier > 0}
-                    <button class="icon-btn" title="Demote trust tier" aria-label="Demote trust tier" onclick={() => showTierModal(acct.account_id, 'demote', acct.trust_tier)} disabled={actionLoading}>▼</button>
+                    <button class="icon-btn demote" title="Demote trust tier" aria-label="Demote trust tier" onclick={() => showTierModal(acct.account_id, 'demote', acct.trust_tier)} disabled={actionLoading}>▼</button>
                   {/if}
                 {/if}
               </div>
               <div class="axis">
-                <span class="badge standing-{acct.research_standing}" title="Research standing">{standingLabel(acct.research_standing)}</span>
+                <span class="tier">{standingLabel(acct.research_standing)}</span>
                 {#if !acct.retired_at && acct.research_standing < 3}
-                  <button class="icon-btn" title="Promote research standing (one step — human review)" aria-label="Promote research standing" onclick={() => showStandingModal(acct.account_id, acct.research_standing)} disabled={actionLoading}>▲</button>
+                  <button class="icon-btn promote" class:earned={acct.r2_readiness?.ready} title={acct.r2_readiness?.ready ? 'Promote — R1→R2 review earned (distinct attested experiments met)' : 'Promote research standing (one step — human review)'} aria-label="Promote research standing" onclick={() => showStandingModal(acct.account_id, acct.research_standing)} disabled={actionLoading}>▲</button>
                 {/if}
               </div>
-              {#if acct.t2_readiness}
-                <div class="t2-ready" title="Progress toward T1→T2 promotion (receipts + distinct experiments + identity gate).">
-                  {#if acct.t2_readiness.ready}<span class="ready-badge">ready for T2</span>{/if}
-                  <span class="rd" class:met={acct.t2_readiness.receipts >= acct.t2_readiness.receipts_required}>{acct.t2_readiness.receipts}/{acct.t2_readiness.receipts_required} receipts</span>
-                  <span class="rd" class:met={acct.t2_readiness.distinct_experiments >= acct.t2_readiness.distinct_required}>{acct.t2_readiness.distinct_experiments}/{acct.t2_readiness.distinct_required} exps</span>
-                  <span class="rd" class:met={acct.t2_readiness.identity_satisfied}>{acct.t2_readiness.identity_satisfied ? 'identity ✓' : 'identity pending'}</span>
-                </div>
-              {/if}
-              {#if acct.r2_readiness}
-                <div class="t2-ready" title="Progress toward R1→R2 review (distinct completed + attested experiments).">
-                  {#if acct.r2_readiness.ready}<span class="ready-badge">ready for R2 review</span>{/if}
-                  <span class="rd" class:met={acct.r2_readiness.distinct >= acct.r2_readiness.threshold}>{acct.r2_readiness.distinct}/{acct.r2_readiness.threshold} exps</span>
-                </div>
-              {/if}
             </td>
             <td class="mono">{new Date(acct.created_at).toLocaleDateString()}</td>
             <td class="status-cell">
@@ -847,14 +833,8 @@
   .badge { display: inline-block; padding: 0.1em 0.55em; border-radius: 3px; font-size: 0.85em; font-weight: 500; background: #2a2e3a; color: #9ca3af; }
   .retired-badge { background: #374151; color: #6b7280; }
   .idp-badge { background: #1e3a5f; color: #93c5fd; margin-right: 0.4em; }
-  .badge.tier-0 { background: #1f2937; }
-  .badge.tier-1 { background: #1e3a5f; color: #93c5fd; }
-  .badge.tier-2 { background: #14532d; color: #86efac; }
-  .badge.tier-3 { background: #4c1d95; color: #c4b5fd; }
-  .badge.standing-0 { background: #1f2937; }
-  .badge.standing-1 { background: #1e3a5f; color: #93c5fd; }
-  .badge.standing-2 { background: #14532d; color: #86efac; }
-  .badge.standing-3 { background: #4c1d95; color: #c4b5fd; }
+  /* tier/standing = neutral reference text; color is reserved for actions. */
+  .tier { color: #c9ced9; font-size: 0.9em; }
   /* identity cell: github line + linked ORCID below */
   .identity-cell { line-height: 1.5; }
   .identity-line { display: flex; align-items: center; flex-wrap: wrap; }
@@ -881,10 +861,6 @@
   .id-link { color: #a78bfa; text-decoration: none; }
   .id-link:hover { text-decoration: underline; }
   /* T1→T2 / R1→R2 promotion readiness (per-account, in the tier cell) */
-  .t2-ready { margin-top: 0.35em; display: flex; flex-direction: column; gap: 0.12em; }
-  .ready-badge { align-self: flex-start; padding: 0.05em 0.5em; border-radius: 3px; font-size: 0.78em; font-weight: 600; background: #14532d; color: #86efac; border: 1px solid #22c55e; }
-  .rd { font-size: 0.78em; color: #9ca3af; font-variant-numeric: tabular-nums; }
-  .rd.met { color: #6ee7a0; }
   .pending-chip { display: inline-block; margin-left: 0.3em; padding: 0.1em 0.55em; border-radius: 3px; font-size: 0.8em; font-weight: 500; background: #78350f; color: #fcd34d; text-decoration: none; white-space: nowrap; }
   .pending-chip:hover { background: #92400e; }
   tr.tenant-nest-row td { background: #0d1119; border-bottom: 1px solid #1a1e2a; }
@@ -939,6 +915,11 @@
   /* compact glyph buttons for inline promote/demote */
   .icon-btn { padding: 0.05em 0.4em; font-size: 0.8em; line-height: 1.4; color: #9ca3af; }
   .icon-btn:hover:not(:disabled) { background: #2a2e3a; color: #e5e7eb; }
+  /* color appears ONLY on an actionable promote/demote: green = an EARNED
+     promotion (mechanical T1→T2 / R1→R2 ready), red = the demote action. */
+  .icon-btn.promote.earned { color: #4ade80; border: 1px solid #22c55e; border-radius: 4px; }
+  .icon-btn.promote.earned:hover:not(:disabled) { background: #14532d; color: #bbf7d0; }
+  .icon-btn.demote:hover:not(:disabled) { background: #7f1d1d; color: #fca5a5; }
   /* consolidated good-standing ⇄ suspended toggle (replaces the status badge +
      the separate suspend/unsuspend button — one control, one column) */
   .status-cell { white-space: nowrap; }

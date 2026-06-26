@@ -705,14 +705,14 @@
   .quarantine-badge { background: #7f1d1d; color: #fca5a5; }
   .stale-badge { background: #78350f; color: #fbbf24; }
   .idp-badge { background: #1e3a5f; color: #93c5fd; }
-  .badge.tier-0 { background: #1f2937; }
-  .badge.tier-1 { background: #1e3a5f; color: #93c5fd; }
-  .badge.tier-2 { background: #14532d; color: #86efac; }
-  .badge.tier-3 { background: #4c1d95; color: #c4b5fd; }
-  .badge.standing-0 { background: #1f2937; }
-  .badge.standing-1 { background: #1e3a5f; color: #93c5fd; }
-  .badge.standing-2 { background: #14532d; color: #86efac; }
-  .badge.standing-3 { background: #4c1d95; color: #c4b5fd; }
+  /* tier/standing = neutral text (no chip); color is reserved for actions. */
+  .badge.tier-0, .badge.tier-1, .badge.tier-2, .badge.tier-3,
+  .badge.standing-0, .badge.standing-1, .badge.standing-2, .badge.standing-3 {
+    background: transparent;
+    padding: 0;
+    font-weight: 400;
+    color: #c9ced9;
+  }
   .research-class-badge { background: #312e81; color: #c4b5fd; }
   .standing-eligibility { display: flex; align-items: center; gap: 0.6em; flex-wrap: wrap; margin: 0 0 0.75em; }
   .muted { color: #6b7280; font-size: 0.95em; }

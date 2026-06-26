@@ -281,10 +281,13 @@
   .retired-badge { background: #374151; color: #6b7280; }
   .actions { white-space: nowrap; }
   .stale-badge { background: #78350f; color: #fbbf24; }
-  .badge.tier-0 { background: #1f2937; }
-  .badge.tier-1 { background: #1e3a5f; color: #93c5fd; }
-  .badge.tier-2 { background: #14532d; color: #86efac; }
-  .badge.tier-3 { background: #4c1d95; color: #c4b5fd; }
+  /* tier = neutral text (no chip); color is reserved for actions. */
+  .badge.tier-0, .badge.tier-1, .badge.tier-2, .badge.tier-3 {
+    background: transparent;
+    padding: 0;
+    font-weight: 400;
+    color: #c9ced9;
+  }
   .badge.prov-b { background: #14532d; color: #86efac; }
   .badge.synth-b { background: #1f2937; color: #9ca3af; }
   .badge.off-b { background: #7f1d1d; color: #fca5a5; }
