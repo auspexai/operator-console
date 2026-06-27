@@ -198,58 +198,11 @@ def test_tenant_application_decline_upstream_422_passes_through(
     assert r.status_code == 422
 
 
-# ---- software-requests pipeline + releases (§9 #46) --------------------------
+# ---- release registry (§9 #46; the software-request intake queue was retired) -------
 
 
-def test_software_requests_require_session(client: TestClient) -> None:
-    assert client.get("/api/v0/proxy/software-requests").status_code == 401
+def test_releases_require_session(client: TestClient) -> None:
     assert client.post("/api/v0/proxy/releases", json={}).status_code == 401
-
-
-@respx.mock
-def test_software_requests_list_forwards_status_filter(authed_client: TestClient) -> None:
-    route = respx.get(f"{COORD_URL}/api/v0/software-requests?status=pending").mock(
-        return_value=httpx.Response(200, json={"requests": []})
-    )
-    r = authed_client.get("/api/v0/proxy/software-requests?status=pending")
-    assert r.status_code == 200
-    assert route.calls.last.request.headers.get("X-Maintainer-Login") == "test-maintainer"
-
-
-@respx.mock
-def test_assess_forwards_body(authed_client: TestClient) -> None:
-    route = respx.post(f"{COORD_URL}/api/v0/software-requests/swr-1/actions/assess").mock(
-        return_value=httpx.Response(200, json={"request_id": "swr-1", "status": "assessed"})
-    )
-    body = {
-        "assessment": {"dependencies": "d", "security": "s", "alternatives": "a"},
-        "draft": False,
-    }
-    r = authed_client.post("/api/v0/proxy/software-requests/swr-1/actions/assess", json=body)
-    assert r.status_code == 200
-    import json as _json
-
-    assert _json.loads(route.calls.last.request.content) == body
-
-
-@respx.mock
-def test_approve_forwards_and_returns_gate_fields(authed_client: TestClient) -> None:
-    respx.post(f"{COORD_URL}/api/v0/software-requests/swr-1/actions/approve").mock(
-        return_value=httpx.Response(
-            200,
-            json={
-                "request_id": "swr-1",
-                "status": "approved",
-                "gate_override": True,
-                "gate_warnings": ["no assessment attached"],
-            },
-        )
-    )
-    r = authed_client.post(
-        "/api/v0/proxy/software-requests/swr-1/actions/approve", json={"reason": "x"}
-    )
-    assert r.status_code == 200
-    assert r.json()["gate_override"] is True
 
 
 @respx.mock

@@ -60,16 +60,6 @@
     tenant_experiment_label?: string;
   };
 
-  type ModelRequest = {
-    request_id: string;
-    tenant_id: string;
-    model_id: string;
-    hf_repo: string | null;
-    reason: string;
-    status: string;
-    created_at: string;
-  };
-
   type SchedExp = {
     experiment_id: string;
     tenant_id: string;
@@ -114,16 +104,6 @@
 
   const STALE_MS = 180_000; // mirrors worker_status.STALE_HEARTBEAT_MINUTES (3m)
 
-  // §9 #46: software-requirements queue (lite view — full review on /requests)
-  type SoftwareRequestLite = {
-    request_id: string;
-    tenant_id: string;
-    title: string;
-    status: string; // pending | assessed | approved | declined | released
-    assessment_draft: boolean;
-    assessment: unknown | null;
-  };
-
   // Tenant applications (lite view — full review on /requests)
   type TenantApplicationLite = {
     application_id: string;
@@ -134,8 +114,6 @@
   };
 
   let experiments = $state<Experiment[]>([]);
-  let requests = $state<ModelRequest[]>([]);
-  let softwareRequests = $state<SoftwareRequestLite[]>([]);
   let tenantApplications = $state<TenantApplicationLite[]>([]);
   let schedExps = $state<SchedExp[]>([]);
   let fleet = $state<FleetWorker[]>([]);
@@ -149,10 +127,8 @@
   async function loadTriage(silent = false): Promise<boolean> {
     if (!silent) triageLoading = true;
     try {
-      const [expR, reqR, swrR, appR, schedR, wkrR, acctR] = await Promise.all([
+      const [expR, appR, schedR, wkrR, acctR] = await Promise.all([
         fetch('/api/v0/proxy/experiments'),
-        fetch('/api/v0/proxy/model-requests'),
-        fetch('/api/v0/proxy/software-requests'),
         fetch('/api/v0/proxy/tenant-applications'),
         fetch('/api/v0/proxy/scheduler/state'),
         fetch('/api/v0/proxy/workers'),
@@ -161,8 +137,6 @@
       if (!expR.ok) throw new Error(`experiments HTTP ${expR.status}`);
       const expBody = await expR.json();
       experiments = expBody.experiments || expBody || [];
-      if (reqR.ok) requests = (await reqR.json()).requests || [];
-      if (swrR.ok) softwareRequests = (await swrR.json()).requests || [];
       if (appR.ok) tenantApplications = (await appR.json()).applications || [];
       if (schedR.ok) schedExps = (await schedR.json()).experiments || [];
       if (wkrR.ok) {
@@ -187,12 +161,6 @@
   // ---- derived triage sections ----------------------------------------------
 
   let pendingApprovals = $derived(experiments.filter((e) => e.status === 'submitted'));
-  let pendingRequests = $derived(
-    requests.filter((r) => r.status === 'pending' || r.status === 'available'),
-  );
-  let pendingSoftware = $derived(
-    softwareRequests.filter((r) => r.status === 'pending' || r.status === 'assessed'),
-  );
   let pendingApplications = $derived(tenantApplications.filter((a) => a.status === 'pending'));
   let blockedExps = $derived(schedExps.filter((e) => e.blocked));
   let stalledExps = $derived(schedExps.filter((e) => !e.blocked && (e.stalled_units ?? 0) > 0));
@@ -239,12 +207,7 @@
   // pulse = units completed network-wide (summed across scheduler experiments),
   // plus the vitals the maintainer triages on.
   let fleetCompleted = $derived(schedExps.reduce((s, e) => s + (e.completed ?? 0), 0));
-  let reviewCount = $derived(
-    pendingApprovals.length +
-      pendingRequests.length +
-      pendingSoftware.length +
-      pendingApplications.length,
-  );
+  let reviewCount = $derived(pendingApprovals.length + pendingApplications.length);
 
   // "Running" = genuinely executing work right now, NOT merely status=approved.
   // There's no distinct running state (D12), and an approved experiment that has
@@ -260,8 +223,6 @@
 
   let needsCount = $derived(
     pendingApprovals.length +
-      pendingRequests.length +
-      pendingSoftware.length +
       pendingApplications.length +
       blockedExps.length +
       stalledExps.length +
@@ -334,35 +295,6 @@
     }
   }
 
-  let resolveModal = $state<{
-    requestId: string;
-    modelId: string;
-    action: 'fulfil' | 'decline';
-    reason: string;
-  } | null>(null);
-
-  async function submitResolve() {
-    if (!resolveModal) return;
-    const m = resolveModal;
-    resolveModal = null;
-    actionLoading = true;
-    try {
-      const r = await fetch(`/api/v0/proxy/model-requests/${m.requestId}/actions/${m.action}`, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ reason: m.reason }),
-      });
-      if (!r.ok) {
-        const d = await r.json().catch(() => ({}));
-        throw new Error(JSON.stringify(d));
-      }
-      await loadTriage(true);
-    } catch (e) {
-      alert(`${m.action} failed: ${(e as Error).message}`);
-    } finally {
-      actionLoading = false;
-    }
-  }
 
   function models(caps: Record<string, string[]>): string {
     return (caps?.models || []).join(', ');
@@ -787,7 +719,7 @@
         {/if}
       </div>
 
-      {#if pendingApprovals.length > 0 || pendingRequests.length > 0 || pendingSoftware.length > 0 || pendingApplications.length > 0}
+      {#if pendingApprovals.length > 0 || pendingApplications.length > 0}
         <section>
           <h2 class="section">Review</h2>
           {#if pendingApprovals.length > 0}
@@ -820,48 +752,6 @@
                     <td class="muted">{app.affiliation}</td>
                     <td class="mono">{app.requested_tenant_id}</td>
                     <td><span class="badge">{app.status}</span></td>
-                    <td><a href="/accounts#applications">review →</a></td>
-                  </tr>
-                {/each}
-              </tbody>
-            </table>
-          {/if}
-          {#if pendingRequests.length > 0}
-            <table>
-              <thead>
-                <tr><th>model request</th><th>tenant</th><th>reason</th><th>status</th><th></th></tr>
-              </thead>
-              <tbody>
-                {#each pendingRequests as req (req.request_id)}
-                  <tr>
-                    <td class="mono">{req.model_id}</td>
-                    <td>{req.tenant_id}</td>
-                    <td class="muted">{req.reason}</td>
-                    <td><span class="badge">{req.status}</span></td>
-                    <td>
-                      <button onclick={() => (resolveModal = { requestId: req.request_id, modelId: req.model_id, action: 'fulfil', reason: '' })} disabled={actionLoading}>fulfil…</button>
-                      <button onclick={() => (resolveModal = { requestId: req.request_id, modelId: req.model_id, action: 'decline', reason: '' })} disabled={actionLoading}>decline…</button>
-                    </td>
-                  </tr>
-                {/each}
-              </tbody>
-            </table>
-          {/if}
-          {#if pendingSoftware.length > 0}
-            <table>
-              <thead>
-                <tr><th>software request</th><th>tenant</th><th>status</th><th></th></tr>
-              </thead>
-              <tbody>
-                {#each pendingSoftware as req (req.request_id)}
-                  <tr>
-                    <td>{req.title}</td>
-                    <td class="mono">{req.tenant_id}</td>
-                    <td>
-                      <span class="badge">{req.status}</span>
-                      {#if req.assessment_draft}<span class="badge warnbadge">auto-draft</span>
-                      {:else if !req.assessment}<span class="muted">no assessment</span>{/if}
-                    </td>
                     <td><a href="/accounts#applications">review →</a></td>
                   </tr>
                 {/each}
@@ -978,22 +868,6 @@
   </div>
 {/if}
 
-{#if resolveModal}
-  <div class="modal-backdrop">
-    <div class="modal">
-      <h2>{resolveModal.action === 'fulfil' ? 'Fulfil' : 'Decline'} model request</h2>
-      <p class="mono muted">{resolveModal.modelId}</p>
-      <label for="mr-reason">reason (required, audited)</label>
-      <input id="mr-reason" bind:value={resolveModal.reason} placeholder="why" />
-      <div class="modal-actions">
-        <button class="primary" onclick={submitResolve} disabled={!resolveModal.reason || actionLoading}>
-          {resolveModal.action}
-        </button>
-        <button onclick={() => (resolveModal = null)}>cancel</button>
-      </div>
-    </div>
-  </div>
-{/if}
 
 <style>
   :global(*) {
