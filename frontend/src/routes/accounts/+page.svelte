@@ -121,6 +121,7 @@
     experiment_id: string;
     tenant_id: string;
     status: string;
+    run_phase?: string | null;
     submitted_at: string;
     assessment_tier: number | null;
   };
@@ -514,7 +515,7 @@
             <a class="exp-chip exp-{e.status}" class:attention={attentionIds.has(e.experiment_id)} href="/experiments/{e.experiment_id}" title={`${e.experiment_id} · ${e.status} · submitted ${new Date(e.submitted_at).toLocaleString()}${attentionIds.has(e.experiment_id) ? ' · NEEDS ATTENTION (approved, no work units)' : ''}${e.assessment_tier != null ? ` · assessed under T${e.assessment_tier}` : ''}`}>
               {#if e.assessment_tier != null}<span class="exp-tier">T{e.assessment_tier}</span>{/if}
               <span class="exp-id mono">{e.experiment_id}</span>
-              <span class="exp-status">{e.status}</span>
+              <span class="exp-status">{e.status}{#if e.run_phase} · {e.run_phase}{/if}</span>
               <span class="exp-date">{new Date(e.submitted_at).toLocaleDateString()}</span>
             </a>
           {/each}

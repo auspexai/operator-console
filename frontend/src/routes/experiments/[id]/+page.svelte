@@ -9,6 +9,7 @@
     experiment_id: string;
     tenant_id: string;
     status: string;
+    run_phase?: string | null;
     integrity_policy: string;
     // C14: the (target, floor) replication override. The coordinator derives the
     // integrity_policy label from the target; floor is min corroboration.
@@ -307,7 +308,7 @@
         <dt>experiment_id</dt><dd class="mono">{experiment.experiment_id}</dd>
         <dt>tenant</dt><dd class="mono">{experiment.tenant_id}</dd>
         <dt>status</dt>
-        <dd><span class="badge {statusBadge[experiment.status] ?? ''}">{experiment.status}</span></dd>
+        <dd><span class="badge {statusBadge[experiment.status] ?? ''}">{experiment.status}</span>{#if experiment.run_phase} <span class="run-phase">· {experiment.run_phase}</span>{/if}</dd>
         <dt>replication</dt><dd>target {experiment.replication_target ?? '—'} / floor {experiment.replication_floor ?? '—'} ({experiment.integrity_policy ?? 'standard'})</dd>
         <dt>submitted</dt><dd class="mono">{new Date(experiment.submitted_at).toLocaleString()}</dd>
         {#if experiment.last_action_at}
@@ -584,6 +585,7 @@
   dt { color: #9ca3af; }
   dd { margin: 0; }
   .mono { font-family: ui-monospace, monospace; font-size: 0.85em; word-break: break-all; }
+  .run-phase { color: #9ca3af; font-size: 0.9em; }
   .badge { display: inline-block; padding: 0.1em 0.55em; border-radius: 3px; font-size: 0.85em; font-weight: 500; background: #2a2e3a; color: #9ca3af; }
   .badge.ok { background: #14532d; color: #86efac; }
   .badge.assess-auto { background: #14532d; color: #86efac; }
