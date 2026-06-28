@@ -161,6 +161,28 @@
       /* experiments are best-effort enrichment */
     }
   }
+  // E14: maintainer needs-attention — approved-but-inert experiments (0 work
+  // units past the stuck threshold). Surfaced as a top-of-page banner with a
+  // DIRECT link to each experiment's detail page (the abort surface), so the nav
+  // badge leads straight to triage instead of into a tree of collapsibles. The
+  // id set also reds the matching chip if you do drill in.
+  type Attention = {
+    experiment_id: string;
+    tenant_id: string;
+    label?: string;
+    age_minutes: number;
+    reason: string;
+  };
+  let attentionExps = $state<Attention[]>([]);
+  const attentionIds = $derived(new Set(attentionExps.map((a) => a.experiment_id)));
+  async function loadAttention(): Promise<void> {
+    try {
+      const r = await fetch('/api/v0/proxy/maintainer/experiments/attention');
+      if (r.ok) attentionExps = (await r.json()).experiments ?? [];
+    } catch {
+      /* attention is best-effort enrichment */
+    }
+  }
 
   const knownAccountIds = $derived(new Set(accounts.map((a) => a.account_id)));
 
@@ -247,6 +269,7 @@
       loadCerts(),
       loadCertStaleness(),
       loadExperiments(),
+      loadAttention(),
     ]);
     return ok;
   }
@@ -488,7 +511,7 @@
         <summary><span class="exp-count">{exps.length} experiment{exps.length === 1 ? '' : 's'}</span>{#if pending > 0} <span class="exp-pending-flag">{pending} pending</span>{/if}</summary>
         <div class="exp-chips">
           {#each exps as e (e.experiment_id)}
-            <a class="exp-chip exp-{e.status}" href="/experiments/{e.experiment_id}" title={`${e.experiment_id} · ${e.status} · submitted ${new Date(e.submitted_at).toLocaleString()}${e.assessment_tier != null ? ` · assessed under T${e.assessment_tier}` : ''}`}>
+            <a class="exp-chip exp-{e.status}" class:attention={attentionIds.has(e.experiment_id)} href="/experiments/{e.experiment_id}" title={`${e.experiment_id} · ${e.status} · submitted ${new Date(e.submitted_at).toLocaleString()}${attentionIds.has(e.experiment_id) ? ' · NEEDS ATTENTION (approved, no work units)' : ''}${e.assessment_tier != null ? ` · assessed under T${e.assessment_tier}` : ''}`}>
               {#if e.assessment_tier != null}<span class="exp-tier">T{e.assessment_tier}</span>{/if}
               <span class="exp-id mono">{e.experiment_id}</span>
               <span class="exp-status">{e.status}</span>
@@ -507,6 +530,24 @@
   {:else if accounts.length === 0}
     <p class="muted">No accounts registered.</p>
   {:else}
+    {#if attentionExps.length > 0}
+      <section class="attention-banner">
+        <strong
+          >⚠ {attentionExps.length} experiment{attentionExps.length === 1 ? '' : 's'} need attention</strong
+        >
+        — approved but inert (no work units submitted; the driver likely crashed or was interrupted):
+        <ul>
+          {#each attentionExps as a (a.experiment_id)}
+            <li>
+              <a class="mono" href="/experiments/{a.experiment_id}">{a.experiment_id}</a>
+              <span class="muted"
+                >· {a.tenant_id} · {Math.floor(a.age_minutes / 60)}h idle · {a.reason}</span
+              >
+            </li>
+          {/each}
+        </ul>
+      </section>
+    {/if}
     {#if reviewCount > 0}
       <section class="review-banner">
         <div class="review-head">
@@ -926,6 +967,14 @@
   .exp-aborted .exp-status { color: #fca5a5; }
   .exp-archived { border-left-color: #6b7280; }
   .exp-archived .exp-status { color: #9ca3af; }
+  /* E14: an inert/abandoned approved run — red ring overrides its status color. */
+  .exp-chip.attention { border-color: #7f1d1d; border-left-color: #ef4444; background: #1a1012; }
+  .exp-chip.attention .exp-status { color: #fca5a5; }
+  /* E14: top-of-page needs-attention banner (red = a real problem to triage). */
+  .attention-banner { margin: 0 0 1.25em; padding: 0.75em 1em; border: 1px solid #7f1d1d; border-left: 3px solid #ef4444; border-radius: 6px; background: #1a1012; color: #fca5a5; }
+  .attention-banner ul { margin: 0.4em 0 0; padding-left: 1.2em; }
+  .attention-banner li { margin: 0.15em 0; }
+  .attention-banner a { color: #fca5a5; font-weight: 600; }
   .unlinked-section { margin-top: 2em; }
   .unlinked-section h2 { font-size: 1.05em; font-weight: 600; color: #fff; margin: 0 0 0.25em; }
   .unlinked-section .tenant-block { background: #0d1119; border: 1px solid #1a1e2a; border-radius: 8px; padding: 0.6em 0.85em; margin: 0.5em 0; }
