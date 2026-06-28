@@ -1,5 +1,6 @@
 <script lang="ts">
   import { page } from '$app/state';
+  import { onMount } from 'svelte';
 
   // Triage-first IA (ui_triage_first_ia_redesign.md §4.1): NOW is the
   // attention queue; Run = the live operational records; Records = the
@@ -46,6 +47,28 @@
       ],
     },
   ];
+
+  // E14: maintainer "needs attention" — approved experiments stuck with zero work
+  // units (driver crashed / abandoned / Ctrl-C). A red count badge on Accounts
+  // (where experiments live, 3 levels deep + collapsed) so abandoned runs don't
+  // sit invisibly; the nav is on every page, so it alerts even from Now, and the
+  // link navigates to the triage surface. Color-discipline: red = a real problem.
+  let attentionCount = $state(0);
+
+  async function refreshAttention() {
+    try {
+      const r = await fetch('/api/v0/proxy/maintainer/experiments/attention');
+      if (r.ok) attentionCount = (await r.json()).count ?? 0;
+    } catch {
+      /* transient — keep the last known count */
+    }
+  }
+
+  onMount(() => {
+    refreshAttention();
+    const id = setInterval(refreshAttention, 30000);
+    return () => clearInterval(id);
+  });
 </script>
 
 <nav>
@@ -56,7 +79,7 @@
       {#if link.external}
         <a href={link.href} target="_blank" rel="noopener">{link.label} ↗</a>
       {:else}
-        <a href={link.href} class:active={link.href === '/' ? page.url.pathname === '/' : page.url.pathname.startsWith(link.href)}>{link.label}</a>
+        <a href={link.href} class:active={link.href === '/' ? page.url.pathname === '/' : page.url.pathname.startsWith(link.href)}>{link.label}{#if link.href === '/accounts' && attentionCount > 0}<span class="badge" title="{attentionCount} experiment(s) need attention (approved but inert)">{attentionCount}</span>{/if}</a>
       {/if}
     {/each}
   {/each}
@@ -69,4 +92,5 @@
   a.active { background: #2a2e3a; border-color: #a78bfa; color: #fff; }
   .sep { width: 1px; height: 1.4em; background: #2a2e3a; margin: 0 0.35em; }
   .group-label { color: #6b7280; font-size: 0.75em; text-transform: uppercase; letter-spacing: 0.08em; }
+  .badge { display: inline-block; margin-left: 0.45em; padding: 0 0.4em; min-width: 1.25em; text-align: center; background: #7f1d1d; color: #fca5a5; border-radius: 999px; font-size: 0.78em; font-weight: 600; vertical-align: baseline; }
 </style>
