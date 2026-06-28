@@ -213,6 +213,15 @@ def build_router(config) -> APIRouter:
     async def get_experiment(request: Request, experiment_id: str) -> Any:
         return await _proxy_get(f"/api/v0/experiments/{experiment_id}", _headers(request))
 
+    # E14: maintainer needs-attention surface (approved-but-inert experiments) —
+    # the nav badge polls this. Distinct path so it doesn't collide with
+    # /experiments/{experiment_id}.
+    @router.get("/maintainer/experiments/attention")
+    async def experiments_attention(request: Request) -> Any:
+        return await _proxy_get(
+            "/api/v0/maintainer/experiments/attention", _headers(request)
+        )
+
     # §9 #48 inc-4: the auto-approval gate (coordinator-authoritative). The
     # console reads/writes it; `decide()` reads it at decision time.
     @router.get("/assessment-policy")
