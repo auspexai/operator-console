@@ -27,8 +27,12 @@
     t2_readiness: {
       receipts: number;
       receipts_required: number;
-      distinct_experiments: number;
+      // E11 D4 fix: the API emits distinct_TENANTS (the T2 gate is tenant
+      // diversity, not experiment count — the 2026-06-26 misread).
+      distinct_tenants: number;
       distinct_required: number;
+      account_age_days?: number;
+      min_account_age_days?: number;
       identity_satisfied: boolean;
       ready: boolean;
     } | null;
@@ -282,7 +286,25 @@
     action: 'promote' | 'demote';
     targetTier: number;
     reason: string;
+    checklist: Record<string, boolean>;
   } | null>(null);
+
+  // E11 D1 (RATIFIED 2026-07-03): the judgment-tier checklist — recorded
+  // verbatim in the audit payload; never a mechanical gate (§3.3). T3 uses the
+  // four base items; R3 adds evidence_reviewed (ratified Q3).
+  const JUDGMENT_CHECKLIST: [string, string][] = [
+    ['identity', 'Identity verified (ORCID or equivalent), checked now'],
+    ['clean_record', 'Clean record — no suspensions, quarantines, or contested actions'],
+    ['age', 'Account age + sustained participation consistent with the tier'],
+    ['track_record', 'Corroborated track record reviewed (receipts + distinct tenants)'],
+  ];
+  const R3_CHECKLIST: [string, string][] = [
+    ...JUDGMENT_CHECKLIST,
+    ['evidence_reviewed', "I read a completed experiment's evidence bundle from this researcher"],
+  ];
+  function checklistComplete(items: [string, string][], ticked: Record<string, boolean>): boolean {
+    return items.every(([key]) => ticked[key]);
+  }
 
   // Research-standing promotion (one step up; there is no demote endpoint —
   // R-demotion is named contestable in §5.4 RFC 0002 but not yet built).
@@ -291,6 +313,7 @@
     current: number;
     target: number;
     reason: string;
+    checklist: Record<string, boolean>;
   } | null>(null);
 
   async function loadAccounts(silent = false): Promise<boolean> {
@@ -319,6 +342,7 @@
       action,
       targetTier: action === 'promote' ? Math.min(currentTier + 1, 3) : Math.max(currentTier - 1, 0),
       reason: '',
+      checklist: {},
     };
   }
 
@@ -329,7 +353,14 @@
       const r = await fetch(`/api/v0/proxy/accounts/${tierModal.accountId}/actions/${tierModal.action}`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ target_tier: tierModal.targetTier, reason: tierModal.reason }),
+        body: JSON.stringify({
+          target_tier: tierModal.targetTier,
+          reason: tierModal.reason,
+          // E11: the judgment checklist rides the audit record for T3 promotes.
+          ...(tierModal.action === 'promote' && tierModal.targetTier === 3
+            ? { checklist: tierModal.checklist }
+            : {}),
+        }),
       });
       if (!r.ok) {
         const detail = await r.json();
@@ -354,6 +385,7 @@
       current: currentStanding,
       target: Math.min(currentStanding + 1, 3),
       reason: '',
+      checklist: {},
     };
   }
 
@@ -366,7 +398,11 @@
         {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ target: standingModal.target, reason: standingModal.reason }),
+          body: JSON.stringify({
+            target: standingModal.target,
+            reason: standingModal.reason,
+            ...(standingModal.target === 3 ? { checklist: standingModal.checklist } : {}),
+          }),
         },
       );
       if (!r.ok) {
@@ -760,6 +796,33 @@
         </select>
       </label>
 
+      {#if tierModal.action === 'promote' && tierModal.targetTier === 2}
+        {@const acct = accounts.find((a) => a.account_id === tierModal?.accountId)}
+        {#if acct?.t2_readiness}
+          <!-- E11 D4: WHICH gate is short, at the decision point (neutral facts,
+               never a verdict — the green stays the aggregate AND). -->
+          <p class="gate-facts">
+            receipts {acct.t2_readiness.receipts}/{acct.t2_readiness.receipts_required}
+            · distinct tenants {acct.t2_readiness.distinct_tenants}/{acct.t2_readiness.distinct_required}
+            {#if acct.t2_readiness.account_age_days != null}· age {acct.t2_readiness.account_age_days}/{acct.t2_readiness.min_account_age_days}d{/if}
+            · identity {acct.t2_readiness.identity_satisfied ? 'verified' : 'not verified'}
+          </p>
+        {/if}
+      {/if}
+
+      {#if tierModal.action === 'promote' && tierModal.targetTier === 3}
+        <!-- E11 D1: the judgment checklist — every tick is recorded verbatim in
+             the audit payload. Structured legibility, never a mechanical gate. -->
+        <div class="checklist">
+          {#each JUDGMENT_CHECKLIST as [key, label] (key)}
+            <label class="check-item">
+              <input type="checkbox" bind:checked={tierModal.checklist[key]} />
+              {label}
+            </label>
+          {/each}
+        </div>
+      {/if}
+
       <label>
         Reason (required)
         <textarea bind:value={tierModal.reason} rows="3" placeholder="Why is this tier change justified? (e.g., identity verified via institutional email, vouched by T2+ volunteer, hardware fault investigation)"></textarea>
@@ -767,7 +830,7 @@
 
       <div class="modal-actions">
         <button onclick={() => (tierModal = null)}>cancel</button>
-        <button class="primary" onclick={submitTierChange} disabled={actionLoading || !tierModal.reason.trim()}>
+        <button class="primary" onclick={submitTierChange} disabled={actionLoading || !tierModal.reason.trim() || (tierModal.action === 'promote' && tierModal.targetTier === 3 && !checklistComplete(JUDGMENT_CHECKLIST, tierModal.checklist))}>
           {tierModal.action} to {tierNames[tierModal.targetTier] ?? `T${tierModal.targetTier}`}
         </button>
       </div>
@@ -787,6 +850,19 @@
         <p class="warn-text">R3 is a trust judgment, not a competence threshold — verify the researcher's real identity / affiliation (e.g. a linked ORCID) out-of-band before granting high-risk eligibility.</p>
       {/if}
 
+      {#if standingModal.target === 3}
+        <!-- E11 D1 + ratified Q3: the R3 variant adds evidence_reviewed — the
+             honest bar for gating high-risk SCIENCE is having read their evidence. -->
+        <div class="checklist">
+          {#each R3_CHECKLIST as [key, label] (key)}
+            <label class="check-item">
+              <input type="checkbox" bind:checked={standingModal.checklist[key]} />
+              {label}
+            </label>
+          {/each}
+        </div>
+      {/if}
+
       <label>
         Reason (required)
         <textarea bind:value={standingModal.reason} rows="3" placeholder="Why is this research-standing promotion justified? (e.g., ethics review passed; affiliation vetted via the linked ORCID record)"></textarea>
@@ -794,7 +870,7 @@
 
       <div class="modal-actions">
         <button onclick={() => (standingModal = null)}>cancel</button>
-        <button class="primary" onclick={submitStandingChange} disabled={actionLoading || !standingModal.reason.trim()}>
+        <button class="primary" onclick={submitStandingChange} disabled={actionLoading || !standingModal.reason.trim() || (standingModal.target === 3 && !checklistComplete(R3_CHECKLIST, standingModal.checklist))}>
           promote to {standingLabel(standingModal.target)}
         </button>
       </div>
@@ -872,6 +948,27 @@
 </main>
 
 <style>
+  /* E11: judgment checklist + per-gate facts — neutral text (color discipline:
+     tiers/facts are never colored; only the action button carries color). */
+  .gate-facts {
+    font-size: 0.82rem;
+    color: var(--muted, #6b6a66);
+    margin: 0.2rem 0 0.4rem;
+  }
+  .checklist {
+    display: flex;
+    flex-direction: column;
+    gap: 0.35rem;
+    margin: 0.4rem 0 0.6rem;
+    font-size: 0.85rem;
+  }
+  .check-item {
+    display: flex;
+    align-items: baseline;
+    gap: 0.45rem;
+    font-weight: normal;
+  }
+
   main { max-width: 1100px; margin: 0 auto; padding: 2em 1.25em; }
   header { border-bottom: 1px solid #2a2e3a; padding-bottom: 0.75em; margin-bottom: 1.5em; }
   h1 { margin: 0; font-size: 1.5em; font-weight: 600; color: #fff; }
