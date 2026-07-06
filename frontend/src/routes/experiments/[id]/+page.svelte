@@ -87,6 +87,21 @@
     created_at: string;
   };
   let publications = $state<PubRecord[]>([]);
+  // E4: receipts-detail — the experiment's issued COSE receipts, with a link
+  // to independent verification (the public verify page / Rekor).
+  type Receipt = { receipt_id: string; issued_at: string };
+  let receipts = $state<Receipt[]>([]);
+  async function loadReceipts() {
+    try {
+      const r = await fetch(
+        `/api/v0/proxy/experiments/${encodeURIComponent(experimentId)}/receipts`
+      );
+      if (r.ok) receipts = (await r.json()).receipts ?? [];
+    } catch {
+      /* receipts view is best-effort */
+    }
+  }
+
   async function loadPublications() {
     try {
       const r = await fetch(
@@ -295,6 +310,7 @@
 
   onMount(() => {
     void loadPublications();
+    void loadReceipts();
     loadExperiment().then((ok) => (live = ok));
     // Poll is the truth, the SSE doorbell is a hint. Scope the doorbell to THIS
     // experiment's frames (the firehose carries every experiment) so progress +
@@ -377,6 +393,28 @@
             </p>
           </div>
         {/each}
+      </section>
+    {/if}
+
+    {#if receipts.length}
+      <section class="card">
+        <h2>Receipts <span class="muted small">{receipts.length}</span></h2>
+        <p class="muted small">
+          COSE-signed work receipts for this experiment. Each verifies independently
+          against the coordinator's public key and the transparency log.
+          <a href="https://auspexai.network/verify.html" target="_blank" rel="noopener noreferrer">verify ↗</a>
+        </p>
+        <div class="receipt-list">
+          {#each receipts.slice(0, 50) as rc (rc.receipt_id)}
+            <div class="pubrow">
+              <span class="mono">{rc.receipt_id}</span>
+              <span class="muted small"> · issued {rc.issued_at?.slice(0, 16).replace('T', ' ')}</span>
+            </div>
+          {/each}
+          {#if receipts.length > 50}
+            <p class="muted small">…and {receipts.length - 50} more</p>
+          {/if}
+        </div>
       </section>
     {/if}
 
