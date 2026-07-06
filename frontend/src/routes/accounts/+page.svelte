@@ -578,7 +578,7 @@
             <li>
               <a class="mono" href="/experiments/{a.experiment_id}">{a.experiment_id}</a>
               <span class="muted"
-                >· {a.tenant_id} · {Math.floor(a.age_minutes / 60)}h idle · {a.reason}</span
+                >· {a.tenant_id}{a.age_minutes > 0 ? ` · ${Math.floor(a.age_minutes / 60)}h idle` : ''} · {a.reason}</span
               >
             </li>
           {/each}
