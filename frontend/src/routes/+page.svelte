@@ -216,6 +216,10 @@
   let runningExps = $derived(
     experiments.filter((e) => {
       if (e.status !== 'approved') return false;
+      // Trust the platform's phase: 'running' now covers between-rounds
+      // (settled + recent activity) — requiring in_progress > 0 zeroed this
+      // tile ~93% of wall time for round-based drivers (2026-07-04 campaign).
+      if (e.run_phase === 'running') return true;
       const s = schedExps.find((x) => x.experiment_id === e.experiment_id);
       return !!s && s.in_progress > 0;
     }),
