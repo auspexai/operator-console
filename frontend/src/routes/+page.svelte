@@ -1,5 +1,6 @@
 <script lang="ts">
   import { onMount } from 'svelte';
+  import LaneStrip from '$lib/components/LaneStrip.svelte';
   import Nav from '$lib/components/Nav.svelte';
   import LiveDot from '$lib/components/LiveDot.svelte';
   import ActivityHeart from '$lib/components/ActivityHeart.svelte';
@@ -58,6 +59,7 @@
     replication_floor: number | null;
     submitted_at: string;
     tenant_experiment_label?: string;
+    run_phase?: string;
   };
 
   type SchedExp = {
@@ -556,7 +558,26 @@
     }
   });
 
+  // UI fix C+D: rehydrate from the coordinator's replay ring (survives
+  // navigation) — seeds the heart's trace and feeds the experiment lanes.
+  type RecentEv = { experiment_id: string | null; at: string; type: string };
+  let recentEvents = $state<RecentEv[]>([]);
+  const heartSeed = $derived.by(() => {
+    const prog = recentEvents.filter((e) => e.type === 'unit.progress' && e.at);
+    let c = 0;
+    return prog.map((e) => ({ t: Date.parse(e.at), c: ++c }));
+  });
+  async function loadRecentEvents() {
+    try {
+      const r = await fetch('/api/v0/proxy/events/recent?limit=1000');
+      if (r.ok) recentEvents = (await r.json()).events ?? [];
+    } catch {
+      /* ring unavailable → views degrade to live-only, as before */
+    }
+  }
+
   onMount(() => {
+    void loadRecentEvents();
     refreshAuth();
     return () => {
       if (healthInterval) clearInterval(healthInterval);
@@ -711,6 +732,13 @@
         runningExperiments={runningExps.length}
         awaitingReview={reviewCount}
         online={health?.coord?.reachable ?? null}
+        seed={heartSeed}
+      />
+      <LaneStrip
+        events={recentEvents}
+        labels={Object.fromEntries(
+          experiments.map((e) => [e.experiment_id, e.tenant_experiment_label ?? e.experiment_id])
+        )}
       />
 
       <div class="needs-header">

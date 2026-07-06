@@ -13,7 +13,8 @@
 		holds,
 		runningExperiments,
 		awaitingReview,
-		online = null
+		online = null,
+		seed
 	}: {
 		pulseTotal: number; // cumulative units completed network-wide (the pulse counter)
 		activeWorkers: number;
@@ -21,11 +22,23 @@
 		runningExperiments: number;
 		awaitingReview: number;
 		online?: boolean | null;
+		// UI fix C: server-seeded history (built from /events/recent) so the
+		// trace survives navigation — rehydrate once, then sample live.
+		seed?: { t: number; c: number }[];
 	} = $props();
 
 	type Sample = { t: number; c: number };
 	const MAX_SAMPLES = 160;
 	let history = $state<Sample[]>([]);
+	let seeded = $state(false);
+	$effect(() => {
+		if (!seeded && seed && seed.length) {
+			seeded = true;
+			untrack(() => {
+				history = [...seed.slice(-MAX_SAMPLES)];
+			});
+		}
+	});
 
 	$effect(() => {
 		const c = pulseTotal ?? 0;
