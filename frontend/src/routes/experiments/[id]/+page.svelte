@@ -73,6 +73,31 @@
     archived: 'archived-badge',
   };
 
+  // G6: publication records — coordinator FACTS (standing at issue,
+  // attestation roots, Rekor ids) beside researcher CLAIMS (peak/breadth,
+  // never re-scored). Rendered distinctly per the ratified Q2.
+  type PubRecord = {
+    record_id: string;
+    kind: string;
+    standing_at_issue: number;
+    summary: Record<string, unknown>;
+    obs_merkle_root?: string | null;
+    obs_rekor_uuid?: string | null;
+    doi?: string | null;
+    created_at: string;
+  };
+  let publications = $state<PubRecord[]>([]);
+  async function loadPublications() {
+    try {
+      const r = await fetch(
+        `/api/v0/proxy/experiments/${encodeURIComponent(experimentId)}/publications`
+      );
+      if (r.ok) publications = (await r.json()).publications ?? [];
+    } catch {
+      /* records unavailable → section simply absent */
+    }
+  }
+
   async function loadExperiment(silent = false): Promise<boolean> {
     if (!silent) loading = true;
     try {
@@ -269,6 +294,7 @@
   let progressPct = $derived(totalUnits > 0 ? Math.round((completedUnits / totalUnits) * 100) : 0);
 
   onMount(() => {
+    void loadPublications();
     loadExperiment().then((ok) => (live = ok));
     // Poll is the truth, the SSE doorbell is a hint. Scope the doorbell to THIS
     // experiment's frames (the firehose carries every experiment) so progress +
@@ -323,6 +349,36 @@
         <dt>submissions finalized</dt><dd>{experiment.submissions_finalized ? 'yes' : 'no'}</dd>
       </dl>
     </section>
+
+    {#if publications.length}
+      <section class="card">
+        <h2>Publications <span class="muted small">G6</span></h2>
+        {#each publications as p2 (p2.record_id)}
+          <div class="pubrow">
+            {#if p2.kind === 'doi'}
+              <p><strong>DOI {p2.doi}</strong> <span class="muted small">minted {p2.created_at.slice(0, 16).replace('T', ' ')}</span></p>
+            {:else}
+              <p>
+                <strong>benchmark published</strong>
+                <span class="muted small">{p2.created_at.slice(0, 16).replace('T', ' ')}</span>
+              </p>
+              <p class="muted small">
+                researcher-signed claim: peak {p2.summary.peak_eu} EU
+                {#if p2.summary.breadth != null}· breadth {(Number(p2.summary.breadth) * 100).toFixed(0)}%{/if}
+                · vs <span class="mono">{p2.summary.reference_experiment_id}</span>
+              </p>
+            {/if}
+            <p class="muted small">
+              coordinator facts: authorized at <strong>R{p2.standing_at_issue}</strong>
+              {#if p2.obs_merkle_root}· attestation <span class="mono">{p2.obs_merkle_root.slice(0, 12)}…</span>{/if}
+              {#if p2.obs_rekor_uuid && p2.obs_rekor_uuid !== 'lab-mode-no-rekor'}
+                · <a href={`https://search.sigstore.dev/?uuid=${p2.obs_rekor_uuid}`} target="_blank" rel="noopener noreferrer">Rekor ↗</a>
+              {/if}
+            </p>
+          </div>
+        {/each}
+      </section>
+    {/if}
 
     {#if experiment.assessment_decision}
       <section class="card">
@@ -570,6 +626,8 @@
 </main>
 
 <style>
+  .pubrow { padding: 0.4rem 0; border-bottom: 1px solid var(--border, #eee); }
+  .pubrow:last-child { border-bottom: none; }
   main { max-width: 1100px; margin: 0 auto; padding: 2em 1.25em; }
   header { border-bottom: 1px solid #2a2e3a; padding-bottom: 0.75em; margin-bottom: 1.5em; }
   h1 { margin: 0; font-size: 1.5em; font-weight: 600; color: #fff; }
