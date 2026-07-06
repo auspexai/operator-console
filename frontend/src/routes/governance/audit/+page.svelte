@@ -32,6 +32,9 @@
     { value: 'account.demote', label: 'account.demote' },
     { value: 'account.suspend', label: 'account.suspend' },
     { value: 'receipt.issued', label: 'receipt.issued' },
+    { value: 'publication.benchmark_authorized', label: 'publication.benchmark_authorized' },
+    { value: 'publication.doi_minted', label: 'publication.doi_minted' },
+    { value: 'raw_content.collected', label: 'raw_content.collected' },
   ];
 
   const actorClassOptions = [
