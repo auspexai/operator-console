@@ -79,7 +79,7 @@
       {#if link.external}
         <a href={link.href} target="_blank" rel="noopener">{link.label} ↗</a>
       {:else}
-        <a href={link.href} class:active={link.href === '/' ? page.url.pathname === '/' : page.url.pathname.startsWith(link.href)}>{link.label}{#if link.href === '/accounts' && attentionCount > 0}<span class="badge" title="{attentionCount} experiment(s) need attention (approved but inert)">{attentionCount}</span>{/if}</a>
+        <a href={link.href} class:active={link.href === '/' ? page.url.pathname === '/' : page.url.pathname.startsWith(link.href)}>{link.label}{#if link.href === '/accounts' && attentionCount > 0}<span class="badge" title="{attentionCount} experiment(s) need attention">{attentionCount}</span>{/if}</a>
       {/if}
     {/each}
   {/each}

@@ -572,7 +572,7 @@
         <strong
           >⚠ {attentionExps.length} experiment{attentionExps.length === 1 ? '' : 's'} need attention</strong
         >
-        — approved but inert (no work units submitted; the driver likely crashed or was interrupted):
+        — each item's specific reason is shown below (inert driver · stalled delivery · §7 schema rejection · capability gap):
         <ul>
           {#each attentionExps as a (a.experiment_id)}
             <li>
