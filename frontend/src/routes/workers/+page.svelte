@@ -23,6 +23,7 @@
       execute_tenant_code?: string;
       models?: string[];
       served_models?: string[];
+      downloads?: Record<string, { bytes_downloaded?: number; total_bytes?: number | null }>;
     } | null;
   };
 
@@ -82,6 +83,29 @@
 
   function execMode(w: Worker): string {
     return w.capabilities?.execute_tenant_code ?? 'synthetic';
+  }
+
+  // D12 5c: in-flight model downloads (auto-acquire). Gives the operator a live
+  // "downloading <model> NN%" instead of a silent "provisioned" while a multi-GB
+  // pull runs for minutes.
+  function hasDownloads(w: Worker): boolean {
+    return Object.keys(w.capabilities?.downloads ?? {}).length > 0;
+  }
+  function fmtBytes(n: number): string {
+    return n >= 1e9 ? `${(n / 1e9).toFixed(1)} GB` : `${Math.round(n / 1e6)} MB`;
+  }
+  function downloadSummary(w: Worker): string {
+    const dl = w.capabilities?.downloads ?? {};
+    return Object.entries(dl)
+      .map(([mid, p]) => {
+        const done = p.bytes_downloaded ?? 0;
+        if (p.total_bytes && p.total_bytes > 0) {
+          const pct = Math.min(100, Math.floor((done / p.total_bytes) * 100));
+          return `downloading ${mid} ${pct}% (${fmtBytes(done)}/${fmtBytes(p.total_bytes)})`;
+        }
+        return `downloading ${mid} ${fmtBytes(done)}`;
+      })
+      .join(', ');
   }
 
   async function quarantine(workerId: string) {
@@ -233,6 +257,9 @@
                 <span class="muted">
                   {#if w.capabilities?.thermal?.current_temp_c != null}— {w.capabilities.thermal.current_temp_c}°C, {/if}routed around until cooled
                 </span>
+              {:else if hasDownloads(w)}
+                <span class="badge downloading-badge">provisioning</span>
+                <span class="muted"> — {downloadSummary(w)}</span>
               {:else}
                 <span class="badge ok">online</span>
               {/if}
@@ -281,6 +308,7 @@
   .retired-badge { background: #374151; color: #6b7280; }
   .actions { white-space: nowrap; }
   .stale-badge { background: #78350f; color: #fbbf24; }
+  .downloading-badge { background: #1e3a5f; color: #93c5fd; }
   /* tier = neutral text (no chip); color is reserved for actions. */
   .badge.tier-0, .badge.tier-1, .badge.tier-2, .badge.tier-3 {
     background: transparent;
