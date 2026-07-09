@@ -249,7 +249,42 @@
     max_payload_bytes: string;
   } | null>(null);
 
-  function showApprovalForm(exp: Experiment) {
+  // The declared shape of the experiment (fetched on approve) so the maintainer
+  // isn't approving blind: derive a sensible max_units from the declared duration
+  // and warn on truncation / fleet-fit. The override stays fully in the maintainer's
+  // hands — this informs, never forces.
+  let approvalContext = $state<{
+    expected_duration_hours: number | null;
+    capable_worker_count: number | null;
+    model: string | null;
+    derivedMaxUnits: number;
+  } | null>(null);
+
+  async function showApprovalForm(exp: Experiment) {
+    let durationH: number | null = null;
+    let capable: number | null = null;
+    let model: string | null = null;
+    try {
+      const r = await fetch(`/api/v0/proxy/experiments/${exp.experiment_id}`);
+      if (r.ok) {
+        const d = await r.json();
+        durationH = d.expected_duration_hours ?? null;
+        capable = d.capable_worker_count ?? null;
+        model = (d.required_capabilities?.models ?? [])[0] ?? null;
+      }
+    } catch {
+      /* fall back to the flat default if the detail fetch fails */
+    }
+    // Generous, transparent derivation: a duration-mode run's real limit is time,
+    // so the unit cap is a backstop — size it above what the duration can produce
+    // (~300 units/h headroom), floored at 500 for short/unspecified runs.
+    const derivedMaxUnits = Math.max(500, Math.ceil((durationH ?? 1) * 300));
+    approvalContext = {
+      expected_duration_hours: durationH,
+      capable_worker_count: capable,
+      model,
+      derivedMaxUnits,
+    };
     // C14: default to the experiment's replication when present, else the
     // (target 3, floor 2) baseline.
     approvalForm = {
@@ -257,11 +292,30 @@
       replication_target: String(exp.replication_target ?? 3),
       replication_floor: String(exp.replication_floor ?? 2),
       max_unit_duration_seconds: '1800',
-      max_units: '500',
+      max_units: String(derivedMaxUnits),
       max_concurrent_assignments: '10',
       max_payload_bytes: '1048576',
     };
   }
+
+  // Non-blocking approve-pane warnings (derive + warn, never auto-override).
+  let truncationWarn = $derived.by(() => {
+    if (!approvalForm || !approvalContext?.expected_duration_hours) return null;
+    const mu = parseInt(approvalForm.max_units);
+    if (mu && mu < approvalContext.derivedMaxUnits) {
+      return `This experiment declares a ${approvalContext.expected_duration_hours}h run — max_units=${mu} will likely cap it early (a back-to-back run of that length typically needs ~${approvalContext.derivedMaxUnits} units).`;
+    }
+    return null;
+  });
+  let fleetFitWarn = $derived.by(() => {
+    if (!approvalForm || approvalContext?.capable_worker_count == null) return null;
+    const floor = parseInt(approvalForm.replication_floor);
+    const cap = approvalContext.capable_worker_count;
+    if (floor && cap < floor) {
+      return `Only ${cap} worker(s) in the fleet can serve ${approvalContext.model ?? 'this model'} — fewer than the replication floor of ${floor}. Units can't be corroborated, so the run will pause (structural). Lower the floor to ≤${cap}, or add a worker that can serve it.`;
+    }
+    return null;
+  });
 
   async function submitApproval() {
     if (!approvalForm) return;
@@ -293,6 +347,7 @@
         throw new Error(JSON.stringify(detail));
       }
       approvalForm = null;
+      approvalContext = null;
       await loadTriage(true);
     } catch (e) {
       alert(`Approval failed: ${(e as Error).message}`);
@@ -879,22 +934,32 @@
     <div class="modal">
       <h2>Approve experiment</h2>
       <p class="mono muted">{approvalForm.experimentId}</p>
+      {#if approvalContext}
+        <div class="declared">
+          <span class="declared-label">Declared:</span>
+          {#if approvalContext.expected_duration_hours}<b>{approvalContext.expected_duration_hours}h run</b>{/if}
+          {#if approvalContext.model}<span class="sep">·</span><b>{approvalContext.model}</b>{/if}
+          {#if approvalContext.capable_worker_count != null}<span class="sep">·</span><b>{approvalContext.capable_worker_count}</b> worker(s) can serve it{/if}
+        </div>
+      {/if}
       <label for="ap-target">Replication target (aspiration)</label>
       <input id="ap-target" type="number" min="1" max="15" bind:value={approvalForm.replication_target} />
       <label for="ap-floor">Replication floor (min corroboration)</label>
       <input id="ap-floor" type="number" min="1" max="15" bind:value={approvalForm.replication_floor} />
+      {#if fleetFitWarn}<p class="warn">⚠ {fleetFitWarn}</p>{/if}
       <p class="hint">The coordinator floors both by the tenant's trust tier; target ≥ floor. The integrity label is derived from the target.</p>
       <label for="ap-dur">max unit duration (s)</label>
       <input id="ap-dur" bind:value={approvalForm.max_unit_duration_seconds} />
-      <label for="ap-units">max units</label>
+      <label for="ap-units">max units <span class="muted">— derived from the declared duration; override freely</span></label>
       <input id="ap-units" bind:value={approvalForm.max_units} />
+      {#if truncationWarn}<p class="warn">⚠ {truncationWarn}</p>{/if}
       <label for="ap-conc">max concurrent assignments</label>
       <input id="ap-conc" bind:value={approvalForm.max_concurrent_assignments} />
       <label for="ap-bytes">max payload bytes</label>
       <input id="ap-bytes" bind:value={approvalForm.max_payload_bytes} />
       <div class="modal-actions">
         <button class="primary" onclick={submitApproval} disabled={actionLoading}>approve</button>
-        <button onclick={() => (approvalForm = null)}>cancel</button>
+        <button onclick={() => { approvalForm = null; approvalContext = null; }}>cancel</button>
       </div>
     </div>
   </div>
@@ -1159,6 +1224,37 @@
     color: #6b7280;
     font-size: 0.8em;
     margin: 0.5em 0 0;
+    line-height: 1.4;
+  }
+  .modal .declared {
+    font-size: 0.85em;
+    color: #9ca3af;
+    background: #16192a;
+    border: 1px solid #2a2e3a;
+    border-radius: 4px;
+    padding: 0.5em 0.7em;
+    margin: 0.25em 0 0.75em;
+  }
+  .modal .declared b {
+    color: #d4d4dc;
+    font-weight: 600;
+  }
+  .modal .declared .declared-label {
+    color: #6b7280;
+    margin-right: 0.4em;
+  }
+  .modal .declared .sep {
+    color: #3a3e4a;
+    margin: 0 0.4em;
+  }
+  .modal .warn {
+    color: #fbbf24;
+    background: #2a2410;
+    border: 1px solid #4a3f15;
+    border-radius: 4px;
+    padding: 0.5em 0.7em;
+    font-size: 0.82em;
+    margin: 0.4em 0 0;
     line-height: 1.4;
   }
   footer {
