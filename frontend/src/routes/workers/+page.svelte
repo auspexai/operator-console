@@ -33,6 +33,8 @@
     worker_id: string;
     model_count: number;
     eligible_experiment_count: number;
+    running_model?: string | null;
+    running_label?: string | null;
   };
 
   const tierNames: Record<number, string> = {
@@ -260,6 +262,9 @@
               {:else if hasDownloads(w)}
                 <span class="badge downloading-badge">provisioning</span>
                 <span class="muted"> — {downloadSummary(w)}</span>
+              {:else if sched[w.worker_id]?.running_model}
+                <span class="badge running-badge">running</span>
+                <span class="muted"> — {sched[w.worker_id].running_model}{#if sched[w.worker_id].running_label} ({sched[w.worker_id].running_label}){/if}</span>
               {:else}
                 <span class="badge ok">online</span>
               {/if}
@@ -309,6 +314,7 @@
   .actions { white-space: nowrap; }
   .stale-badge { background: #78350f; color: #fbbf24; }
   .downloading-badge { background: #1e3a5f; color: #93c5fd; }
+  .running-badge { background: #14532d; color: #86efac; }
   /* tier = neutral text (no chip); color is reserved for actions. */
   .badge.tier-0, .badge.tier-1, .badge.tier-2, .badge.tier-3 {
     background: transparent;
