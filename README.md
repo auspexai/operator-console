@@ -12,15 +12,17 @@ The operator console is the **maintainer's union view**: see and intervene acros
 
 ### What's live
 
-- Experiments list + detail + lifecycle actions (pause / resume / abort / archive)
-- Worker fleet view (connected, tier, capabilities, last-seen) + worker detail
-- Alerts list + resolution
-- System health (coordinator process, scheduler queue, DB connectivity)
-- Approver review queue (Maintainer-as-Approver per §6.5 softer-floor-of-1)
-- Live SSE streams for experiments + workers
-- Receipt browser with COSE + in-toto + Rekor verification
-- Audit log
-- Historical experiment browser
+Organized as the surfaces the maintainer navigates:
+
+- **Now** — the operational overview: the needs-attention rail (approved experiments with no work units, capability gaps), live + historical experiments with lifecycle status, fleet-at-a-glance, alerts + resolution, and system health (coordinator process, scheduler queue, DB connectivity).
+- **Experiments** (per-experiment detail) — lifecycle actions (pause / resume / abort / archive), assessment tier, work-unit progress, and receipts-in-context — reached from Now and from an account.
+- **Workers** (fleet + per-worker detail) — connected / tier / capabilities / last-seen, worker eligibility, and drill-down to a worker's assignments and receipts.
+- **Models** — the servable-model catalog + model requests, overlaid with which models the live fleet currently serves.
+- **Accounts** (list + per-account detail) — researcher/tenant accounts: trust-tier standing + promotion, the tenant-application / Approver review queue (Maintainer-as-Approver per §6.5 softer-floor-of-1), and per-account experiments.
+- **Governance → Config** — coordinator/console configuration.
+- **Governance → Audit** — the audit-log browser (filterable, incl. G6 / DOI / raw-artifact actions).
+- **Verify** — links out to the public canonical verifier ([verify.html](https://auspexai.network/verify.html): certified-profile catalog + Rekor + authorized-signer roster) rather than duplicating COSE / in-toto / Rekor verification in-console.
+- Live **SSE streams** keep experiments, workers, and alerts current without a manual refresh.
 
 ## Stack
 
