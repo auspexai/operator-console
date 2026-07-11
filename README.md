@@ -4,25 +4,21 @@ Private, auth-gated maintainer dashboard for [AuspexAI](https://github.com/auspe
 
 ## Status
 
-**Phase 0 — Foundation placeholder.** Active development begins in Phase 1, in parallel with the coordinator daemon. The operator console is one of four Phase 1 UI surfaces per §5.18 of the AuspexAI Principles & Scope document.
+**LIVE — deployed (v0.1.77).** The maintainer console runs against the live coordinator (default bind 127.0.0.1:4227). One of four Phase-1 UI surfaces per §5.18.
 
 ## Scope
 
 The operator console is the **maintainer's union view**: see and intervene across experiments, fleet, receipts, alerts, and system health. Sibling Phase 1 UI surfaces — researcher dashboard, tenant onboarding form, public receipt verifier — are separate codebases per §5.18.
 
-### Phase 1 v0
+### What's live
 
 - Experiments list + detail + lifecycle actions (pause / resume / abort / archive)
-- Worker fleet view (connected, tier, capabilities, last-seen)
+- Worker fleet view (connected, tier, capabilities, last-seen) + worker detail
 - Alerts list + resolution
 - System health (coordinator process, scheduler queue, DB connectivity)
 - Approver review queue (Maintainer-as-Approver per §6.5 softer-floor-of-1)
-
-### Phase 1 v1
-
 - Live SSE streams for experiments + workers
 - Receipt browser with COSE + in-toto + Rekor verification
-- Harness runner (sdk-harness, platform-harness, end-to-end-harness)
 - Audit log
 - Historical experiment browser
 
@@ -31,6 +27,16 @@ The operator console is the **maintainer's union view**: see and intervene acros
 - **Frontend:** SvelteKit + TypeScript
 - **Backend:** FastAPI (Python) — colocated with the frontend for harness invocation, key signing, and SSE proxying. Speaks to the coordinator daemon via the published HTTP API contract; never deployed standalone.
 - **Auth:** maintainer bearer token (Phase 1) → OAuth Device Flow (Phase 2-3)
+
+## Development
+
+The Python backend lives in `backend/`. Quick start:
+
+```bash
+cd backend
+pip install -e ".[dev]"
+auspexai-operator-console serve         # binds 127.0.0.1:4227
+```
 
 ## License
 
@@ -45,4 +51,4 @@ The operator console is the **maintainer's union view**: see and intervene acros
 
 ## Watch this repo
 
-Activity begins as the coordinator daemon comes online. Issues and discussion welcome.
+The console is live in open beta against the running coordinator. Issues and discussion welcome.
