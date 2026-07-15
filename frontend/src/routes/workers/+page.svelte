@@ -16,6 +16,8 @@
     quarantine_reason: string | null;
     paused_at: string | null;
     pause_reason: string | null;
+    ollama_version?: string | null;
+    ollama_update_recommended?: boolean | null;
     capabilities?: {
       thermal?: { state?: string; current_temp_c?: number };
       self_paused?: boolean;
@@ -23,6 +25,7 @@
       execute_tenant_code?: string;
       models?: string[];
       served_models?: string[];
+      ollama_version?: string;
       downloads?: Record<string, { bytes_downloaded?: number; total_bytes?: number | null }>;
     } | null;
   };
@@ -223,7 +226,16 @@
                 <span class="badge synth-b" title="synthetic echo only — excluded from real (model-gated) experiments">synthetic</span>
               {/if}
             </td>
-            <td class="mono">{w.capabilities?.worker_version ?? '—'}</td>
+            <td class="mono">
+              {w.capabilities?.worker_version ?? '—'}
+              {#if w.ollama_update_recommended}
+                <span
+                  class="badge ollama-stale"
+                  title="Ollama {w.ollama_version ?? w.capabilities?.ollama_version ?? '?'} is below the recommended minimum — newer models (e.g. phi-3.5, qwen3, gpt-oss) may fail to serve on this worker. Update Ollama on this host and restart the model server."
+                  >⚠ ollama {w.ollama_version ?? w.capabilities?.ollama_version ?? ''} — update</span
+                >
+              {/if}
+            </td>
             <td>
               {(w.capabilities?.models ?? []).length}
               {#if (w.capabilities?.served_models ?? []).length > 0}
@@ -327,6 +339,7 @@
   .badge.off-b { background: #7f1d1d; color: #fca5a5; }
   .badge.serving-b { background: #1e3a5f; color: #93c5fd; margin-left: 0.3em; }
   .badge.idle { background: #78350f; color: #fcd34d; margin-left: 0.3em; }
+  .badge.ollama-stale { background: #78350f; color: #fcd34d; margin-left: 0.3em; cursor: help; }
   .id-link { color: #a78bfa; text-decoration: none; }
   .id-link:hover { text-decoration: underline; }
   .muted { color: #6b7280; font-size: 0.95em; }
