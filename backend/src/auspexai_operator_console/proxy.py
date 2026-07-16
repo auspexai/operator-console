@@ -364,6 +364,12 @@ def build_router(config) -> APIRouter:
     async def models_catalog(request: Request) -> Any:
         return await _proxy_get("/api/v0/models/catalog", _headers(request))
 
+    @router.get("/models/supported")
+    async def models_supported(request: Request) -> Any:
+        # The fit VERDICT (serve-footprint-aware): status + how many workers can
+        # actually run each model, vs mere disk presence. Powers the /models page.
+        return await _proxy_get("/api/v0/models/supported", _headers(request))
+
     # ---- tenant applications (onboarding review queue) ----
     # Approve is the one-shot onboarding action on the coordinator: tenant
     # created + applicant key bound + account linked, all in one call.
