@@ -23,6 +23,7 @@
   let loading = $state(true);
   let error = $state<string | null>(null);
   let live = $state(false);
+  let catalogStale = $state(false);
 
   const rank: Record<string, number> = { available: 0, runnable: 1, unknown: 2, too_big: 3 };
 
@@ -35,6 +36,7 @@
       models = ((c.models || []) as Entry[]).sort(
         (a, b) => (rank[a.status] ?? 9) - (rank[b.status] ?? 9) || a.model_id.localeCompare(b.model_id),
       );
+      catalogStale = !!c.catalog_stale;
       error = null;
       return true;
     } catch (e) {
@@ -73,6 +75,13 @@
   {:else if error}
     <p class="errortext">Failed to load: {error}</p>
   {:else}
+    {#if catalogStale}
+      <p class="stalebanner" role="status">
+        ⚠ Provisionable catalog is STALE — the <code>refresh-hf-catalog</code> timer hasn't run
+        in &gt;48h (or fell back to the curated seed). Check the timer on the coordinator. The live
+        fleet columns below are unaffected.
+      </p>
+    {/if}
     <h2 class="section">What the fleet can run</h2>
     <p class="muted">
       Sized by the real serve footprint (weights + KV cache + runtime), not just the file — a
@@ -123,6 +132,16 @@
   .mono { font-family: ui-monospace, monospace; font-size: 0.85em; }
   .muted { color: #6b7280; font-size: 0.95em; }
   .errortext { color: #fca5a5; }
+  .stalebanner {
+    color: #e0b464;
+    background: rgba(224, 180, 100, 0.08);
+    border: 1px solid rgba(224, 180, 100, 0.3);
+    border-radius: 6px;
+    padding: 0.6rem 0.8rem;
+    font-size: 0.9em;
+    margin: 0.5rem 0 1rem;
+  }
+  .stalebanner code { font-family: ui-monospace, monospace; font-size: 0.9em; }
   .badge { display: inline-block; padding: 0.1em 0.55em; border-radius: 3px; font-size: 0.85em; font-weight: 500; background: #2a2e3a; color: #9ca3af; }
   .badge.available { background: #14532d; color: #86efac; }
   .badge.runnable { background: #1e3a5f; color: #93c5fd; }
