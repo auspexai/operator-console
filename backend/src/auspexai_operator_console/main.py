@@ -16,7 +16,7 @@ from fastapi.responses import FileResponse, JSONResponse
 from fastapi.staticfiles import StaticFiles
 from starlette.middleware.sessions import SessionMiddleware
 
-from auspexai_operator_console.errors import safe_detail
+from auspexai_operator_console.errors import logged_failure
 
 from . import __version__
 from .agent_admin import build_router as build_agent_admin_router
@@ -81,7 +81,7 @@ def create_app(config: OperatorConsoleConfig | None = None) -> FastAPI:
                 coord_detail = r.json().get("status") if coord_ok else f"HTTP {r.status_code}"
         except httpx.HTTPError as e:
             coord_ok = False
-            coord_detail = "error: " + safe_detail(
+            coord_detail = logged_failure(
                 e, logger=logger, context="coordinator health probe failed"
             )
 
