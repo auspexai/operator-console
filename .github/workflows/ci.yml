@@ -6,6 +6,11 @@ on:
   pull_request:
     branches: [main]
 
+# Least privilege for CI: it only ever reads the tree. The release
+# workflow declares its own broader scopes at the job that needs them.
+permissions:
+  contents: read
+
 jobs:
   metadata:
     name: Verify repo metadata
@@ -18,3 +23,58 @@ jobs:
           head -3 LICENSE | grep -q "Apache License"
       - name: Verify README exists
         run: test -f README.md
+
+  # Until 2026-08-03 this workflow was the metadata job ALONE — `test -f
+  # README.md` and a LICENSE grep. The backend suite and the frontend
+  # svelte-check/build both already existed and were simply never run, so a
+  # green tick on this repo meant nothing: a Dependabot PR bumping typescript
+  # to a major that breaks svelte-check passed CI here while failing it in
+  # researcher-dashboard, which does run those checks. The console is
+  # deployed, so "green means nothing" was the costliest gap in the repo.
+  backend:
+    name: Backend (ruff + pytest)
+    runs-on: ubuntu-24.04
+    defaults:
+      run:
+        working-directory: backend
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/setup-python@v7
+        with:
+          python-version: "3.12"
+      - name: Install uv
+        uses: astral-sh/setup-uv@v7
+      - name: Sync
+        run: uv sync --extra dev
+      - name: Lint
+        run: uv run ruff check .
+      - name: Format check
+        run: uv run ruff format --check .
+      - name: Test
+        run: uv run pytest -q
+
+  frontend:
+    name: Frontend (svelte-check + build)
+    runs-on: ubuntu-24.04
+    defaults:
+      run:
+        working-directory: frontend
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/setup-node@v7
+        with:
+          node-version: 22
+      - uses: pnpm/action-setup@v6
+        with:
+          # Pinned deliberately: a floating `latest` here broke the
+          # researcher-dashboard release build once already.
+          version: 10.33.4
+      - name: Install
+        run: pnpm install --no-frozen-lockfile
+      # svelte-check exits non-zero on ERRORS only. The tree currently carries
+      # 34 a11y WARNINGS, worth clearing but not the thing that should gate a
+      # deploy on the day this job starts existing.
+      - name: Check
+        run: pnpm run check
+      - name: Build
+        run: pnpm run build

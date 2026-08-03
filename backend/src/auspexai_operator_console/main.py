@@ -7,6 +7,7 @@ so the placeholder page can show "backend → coord" connectivity.
 
 from __future__ import annotations
 
+import logging
 from datetime import UTC, datetime
 
 import httpx
@@ -15,12 +16,16 @@ from fastapi.responses import FileResponse, JSONResponse
 from fastapi.staticfiles import StaticFiles
 from starlette.middleware.sessions import SessionMiddleware
 
+from auspexai_operator_console.errors import safe_detail
+
 from . import __version__
 from .agent_admin import build_router as build_agent_admin_router
 from .apidocs import build_router as build_apidocs_router
 from .auth import build_router as build_auth_router
 from .config import OperatorConsoleConfig
 from .proxy import build_router as build_proxy_router
+
+logger = logging.getLogger(__name__)
 
 
 def create_app(config: OperatorConsoleConfig | None = None) -> FastAPI:
@@ -76,7 +81,9 @@ def create_app(config: OperatorConsoleConfig | None = None) -> FastAPI:
                 coord_detail = r.json().get("status") if coord_ok else f"HTTP {r.status_code}"
         except httpx.HTTPError as e:
             coord_ok = False
-            coord_detail = f"error: {e!s}"
+            coord_detail = "error: " + safe_detail(
+                e, logger=logger, context="coordinator health probe failed"
+            )
 
         return JSONResponse(
             {

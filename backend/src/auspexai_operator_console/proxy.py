@@ -218,9 +218,7 @@ def build_router(config) -> APIRouter:
     # /experiments/{experiment_id}.
     @router.get("/maintainer/experiments/attention")
     async def experiments_attention(request: Request) -> Any:
-        return await _proxy_get(
-            "/api/v0/maintainer/experiments/attention", _headers(request)
-        )
+        return await _proxy_get("/api/v0/maintainer/experiments/attention", _headers(request))
 
     # §9 #48 inc-4: the auto-approval gate (coordinator-authoritative). The
     # console reads/writes it; `decide()` reads it at decision time.
